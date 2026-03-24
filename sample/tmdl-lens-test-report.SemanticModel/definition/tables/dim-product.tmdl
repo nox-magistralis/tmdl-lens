@@ -1,0 +1,47 @@
+// Dimension table — references SharePoint list expression
+table dim-product
+	lineageTag: 00000002-0000-0000-0000-000000000003
+
+	column product_id
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000020
+		summarizeBy: none
+		sourceColumn: product_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column product_name
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000021
+		summarizeBy: none
+		sourceColumn: product_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column category
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000022
+		summarizeBy: none
+		sourceColumn: category
+
+		annotation SummarizationSetBy = Automatic
+
+	column unit_price
+		dataType: double
+		lineageTag: 00000003-0000-0000-0000-000000000023
+		summarizeBy: sum
+		sourceColumn: unit_price
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim-product = m
+		mode: import
+		queryGroup: 'Dimension Tables'
+		source =
+				let
+				    Source = #"source-dataflow-platform"
+				in
+				    Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Exception

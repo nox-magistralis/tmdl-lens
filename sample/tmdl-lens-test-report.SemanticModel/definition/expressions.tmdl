@@ -1,0 +1,325 @@
+// ============================================================
+// tmdl-lens TEST EXPRESSIONS FILE
+// Purpose: Covers all major M source patterns for parser testing
+// Connection strings are intentionally fake — model will not load
+// ============================================================
+
+
+// ── PATTERN 1: PowerBI.Dataflows() — standard connector ──────────────────────
+expression source-dataflow-standard =
+		let
+		    Source = PowerBI.Dataflows(),
+		    #"aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa" = Source{[workspaceId="aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"]}[Data],
+		    #"bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb" = #"aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"{[dataflowId="bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb"]}[Data],
+		    sales_fact = #"bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb"{[entity="sales_fact"]}[Data]
+		in
+		    sales_fact
+	lineageTag: 00000001-0000-0000-0000-000000000001
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 2: PowerPlatform.Dataflows(null) — alternative connector ─────────
+expression source-dataflow-platform =
+		let
+		    Source = PowerPlatform.Dataflows(null),
+		    Workspaces = Source{[Id="Workspaces"]}[Data],
+		    #"aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa" = Workspaces{[workspaceId="aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"]}[Data],
+		    #"cccccccc-0000-0000-0000-cccccccccccc" = #"aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"{[dataflowId="cccccccc-0000-0000-0000-cccccccccccc"]}[Data],
+		    product_dim = #"cccccccc-0000-0000-0000-cccccccccccc"{[entity="product_dim",version=""]}[Data]
+		in
+		    product_dim
+	lineageTag: 00000001-0000-0000-0000-000000000002
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 3: Sql.Database() — direct SQL connection ────────────────────────
+expression source-sql-direct =
+		let
+		    Source = Sql.Database("fake-server.database.windows.net", "SalesDB"),
+		    dbo_orders = Source{[Schema="dbo",Item="orders"]}[Data]
+		in
+		    dbo_orders
+	lineageTag: 00000001-0000-0000-0000-000000000003
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 4: Sql.Database() with native query ──────────────────────────────
+expression source-sql-native-query =
+		let
+		    Source = Sql.Database(
+		        "fake-server.database.windows.net",
+		        "SalesDB",
+		        [Query="SELECT order_id, customer_id, order_date, amount FROM dbo.orders WHERE status = 'active'"]
+		    )
+		in
+		    Source
+	lineageTag: 00000001-0000-0000-0000-000000000004
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 5: Odbc.DataSource() — ODBC connection ───────────────────────────
+expression source-odbc =
+		let
+		    Source = Odbc.DataSource(
+		        "dsn=MyRedshiftDSN",
+		        [HierarchicalNavigation=true]
+		    ),
+		    public_schema = Source{[Name="public"]}[Data],
+		    inventory_view = public_schema{[Name="inventory_summary_v"]}[Data]
+		in
+		    inventory_view
+	lineageTag: 00000001-0000-0000-0000-000000000005
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 6: SharePoint.Files() — file from SharePoint ─────────────────────
+expression source-sharepoint-file =
+		let
+		    Source = SharePoint.Files("https://myorg.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
+		    FilteredFolder = Table.SelectRows(
+		        Source,
+		        each [Folder Path] = "https://myorg.sharepoint.com/sites/DataTeam/Shared Documents/Data/"
+		            and [Name] = "reference_data.csv"
+		    ),
+		    FileContent = FilteredFolder{0}[Content],
+		    ImportedCSV = Csv.Document(FileContent, [Delimiter=",", Encoding=65001, QuoteStyle=QuoteStyle.Csv]),
+		    PromotedHeaders = Table.PromoteHeaders(ImportedCSV, [PromoteAllScalars=true])
+		in
+		    PromotedHeaders
+	lineageTag: 00000001-0000-0000-0000-000000000006
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 7: SharePoint.Tables() — SharePoint list ─────────────────────────
+expression source-sharepoint-list =
+		let
+		    Source = SharePoint.Tables("https://myorg.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
+		    ProjectList = Source{[Name="Project Tracker"]}[Data],
+		    RemovedColumns = Table.SelectColumns(ProjectList, {"Title", "Status", "Owner", "DueDate"})
+		in
+		    RemovedColumns
+	lineageTag: 00000001-0000-0000-0000-000000000007
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 8: Excel.Workbook() from SharePoint ──────────────────────────────
+expression source-excel-sharepoint =
+		let
+		    Source = SharePoint.Files("https://myorg.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
+		    FilteredFile = Table.SelectRows(Source, each [Name] = "master_data.xlsx"),
+		    LatestFile = Table.SelectRows(FilteredFile, let latest = List.Max(FilteredFile[Date modified]) in each [Date modified] = latest),
+		    ImportedExcel = Excel.Workbook(LatestFile{0}[Content], true),
+		    Sheet = ImportedExcel{[Item="Sheet1", Kind="Sheet"]}[Data],
+		    PromotedHeaders = Table.PromoteHeaders(Sheet, [PromoteAllScalars=true])
+		in
+		    PromotedHeaders
+	lineageTag: 00000001-0000-0000-0000-000000000008
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 9: Excel.Workbook() from local file path ─────────────────────────
+expression source-excel-local =
+		let
+		    Source = Excel.Workbook(File.Contents("C:\Data\budget_data.xlsx"), true),
+		    BudgetSheet = Source{[Item="Budget", Kind="Sheet"]}[Data],
+		    PromotedHeaders = Table.PromoteHeaders(BudgetSheet, [PromoteAllScalars=true])
+		in
+		    PromotedHeaders
+	lineageTag: 00000001-0000-0000-0000-000000000009
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 10: Csv.Document() from local file path ──────────────────────────
+expression source-csv-local =
+		let
+		    Source = Csv.Document(
+		        File.Contents("C:\Data\locations.csv"),
+		        [Delimiter=",", Columns=5, Encoding=65001, QuoteStyle=QuoteStyle.None]
+		    ),
+		    PromotedHeaders = Table.PromoteHeaders(Source, [PromoteAllScalars=true])
+		in
+		    PromotedHeaders
+	lineageTag: 00000001-0000-0000-0000-000000000010
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 11: Web.Contents() — REST API ────────────────────────────────────
+expression source-web-api =
+		let
+		    Source = Web.Contents(
+		        "https://api.example.com/v1/products",
+		        [Headers=[#"Authorization"="Bearer fake-token", #"Content-Type"="application/json"]]
+		    ),
+		    ParsedJSON = Json.Document(Source),
+		    ConvertedToTable = Table.FromList(ParsedJSON, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+		    ExpandedColumns = Table.ExpandRecordColumn(ConvertedToTable, "Column1", {"id", "name", "category"})
+		in
+		    ExpandedColumns
+	lineageTag: 00000001-0000-0000-0000-000000000011
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 12: OData.Feed() — OData source ──────────────────────────────────
+expression source-odata =
+		let
+		    Source = OData.Feed("https://services.odata.org/V4/Northwind/Northwind.svc/", null, [Implementation="2.0"]),
+		    Orders = Source{[Name="Orders", Signature="table"]}[Data]
+		in
+		    Orders
+	lineageTag: 00000001-0000-0000-0000-000000000012
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 13: Built from M parameter (Tier 2 — needs resolution) ───────────
+expression source-from-parameter =
+		let
+		    Source = Sql.Database(ServerName, DatabaseName),
+		    dbo_customers = Source{[Schema="dbo", Item="customers"]}[Data]
+		in
+		    dbo_customers
+	lineageTag: 00000001-0000-0000-0000-000000000013
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 14: Reference to another query (Tier 2 — follow chain) ───────────
+expression source-derived =
+		let
+		    Source = #"source-sql-direct",
+		    FilteredRows = Table.SelectRows(Source, each [status] = "active"),
+		    RemovedColumns = Table.RemoveColumns(FilteredRows, {"internal_notes"})
+		in
+		    RemovedColumns
+	lineageTag: 00000001-0000-0000-0000-000000000014
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 15: Custom function wrapping a source (Tier 2 — follow chain) ────
+expression source-via-custom-function =
+		let
+		    Source = fnGetDataflowEntity("aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa", "dddddddd-0000-0000-0000-dddddddddddd", "calendar_dim")
+		in
+		    Source
+	lineageTag: 00000001-0000-0000-0000-000000000015
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 16: Dynamic M — string concatenation (Tier 3 — unresolvable) ─────
+expression source-dynamic =
+		let
+		    BaseUrl = "https://api.example.com/v1/",
+		    Endpoint = "sales",
+		    FullUrl = BaseUrl & Endpoint & "?year=" & Text.From(Date.Year(DateTime.LocalNow())),
+		    Source = Web.Contents(FullUrl),
+		    ParsedJSON = Json.Document(Source)
+		in
+		    ParsedJSON
+	lineageTag: 00000001-0000-0000-0000-000000000016
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 17: Inline hardcoded table via #table() ──────────────────────────
+expression source-hardcoded =
+		let
+		    Source = #table(
+		        {"RegionCode", "RegionName", "Currency"},
+		        {
+		            {"EU", "Europe", "EUR"},
+		            {"NA", "North America", "USD"},
+		            {"AP", "Asia Pacific", "USD"},
+		            {"LA", "Latin America", "USD"}
+		        }
+		    )
+		in
+		    Source
+	lineageTag: 00000001-0000-0000-0000-000000000017
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// ── PATTERN 18: Helper scalar expression (returns a value, not a table) ───────
+expression helper-report-date =
+		let
+		    Today = Date.From(DateTime.LocalNow()),
+		    StartOfWeek = Date.StartOfWeek(Today, Day.Monday)
+		in
+		    StartOfWeek
+	lineageTag: 00000001-0000-0000-0000-000000000018
+	queryGroup: Helpers
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Date
+
+
+// ── PATTERN 19: M Parameter — text ───────────────────────────────────────────
+expression ServerName = "fake-server.database.windows.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 00000001-0000-0000-0000-000000000019
+
+expression DatabaseName = "SalesDB" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 00000001-0000-0000-0000-000000000020
+
+
+// ── PATTERN 20: Custom function definition ────────────────────────────────────
+expression fnGetDataflowEntity =
+		(workspaceId as text, dataflowId as text, entityName as text) =>
+		let
+		    Source = PowerBI.Dataflows(),
+		    Workspace = Source{[workspaceId=workspaceId]}[Data],
+		    Dataflow = Workspace{[dataflowId=dataflowId]}[Data],
+		    Entity = Dataflow{[entity=entityName]}[Data]
+		in
+		    Entity
+	lineageTag: 00000001-0000-0000-0000-000000000021
+	queryGroup: Functions
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Function

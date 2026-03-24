@@ -1,0 +1,45 @@
+// Not-loaded table — enableLoad: false
+// Parser must detect this and flag it separately
+table source-sql-staging
+	lineageTag: 00000002-0000-0000-0000-000000000002
+
+	column order_id
+		dataType: int64
+		formatString: 0
+		lineageTag: 00000003-0000-0000-0000-000000000010
+		summarizeBy: none
+		sourceColumn: order_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column status
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000011
+		summarizeBy: none
+		sourceColumn: status
+
+		annotation SummarizationSetBy = Automatic
+
+	column internal_notes
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000012
+		summarizeBy: none
+		sourceColumn: internal_notes
+
+		annotation SummarizationSetBy = Automatic
+
+	partition source-sql-staging = m
+		mode: import
+		queryGroup: Source
+		source =
+				let
+				    Source = #"source-sql-direct"
+				in
+				    Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Exception
+
+	changedProperty = IsHidden
+
+	annotation TabularEditor_EnableLoad = false

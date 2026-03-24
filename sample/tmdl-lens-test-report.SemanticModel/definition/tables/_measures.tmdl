@@ -1,0 +1,32 @@
+// Measures table — no partition/source, DAX measures only
+// Parser must detect this as a measures-only table
+table _measures
+	lineageTag: 00000002-0000-0000-0000-000000000006
+
+	measure 'Total Sales Amount' = SUM('fact-sales'[amount])
+		lineageTag: 00000004-0000-0000-0000-000000000001
+		formatString: #,##0.00
+
+		annotation PBI_FormatHint = {"currencyCulture":"en-US"}
+
+	measure 'Order Count' = DISTINCTCOUNT('fact-sales'[order_id])
+		lineageTag: 00000004-0000-0000-0000-000000000002
+		formatString: #,##0
+
+	measure 'Avg Order Value' = DIVIDE([Total Sales Amount], [Order Count], 0)
+		lineageTag: 00000004-0000-0000-0000-000000000003
+		formatString: #,##0.00
+
+	measure 'Sales YTD' = TOTALYTD([Total Sales Amount], 'dim-date'[Date])
+		lineageTag: 00000004-0000-0000-0000-000000000004
+		formatString: #,##0.00
+
+	partition _measures = m
+		mode: import
+		source =
+				let
+				    Source = Table.FromRows({}, type table)
+				in
+				    Source
+
+	annotation PBI_NavigationStepName = Navigation

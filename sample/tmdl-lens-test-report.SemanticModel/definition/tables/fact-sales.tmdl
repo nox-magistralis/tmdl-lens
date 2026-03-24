@@ -1,0 +1,50 @@
+// Loaded fact table — references a shared expression
+table fact-sales
+	lineageTag: 00000002-0000-0000-0000-000000000001
+
+	column order_id
+		dataType: int64
+		formatString: 0
+		lineageTag: 00000003-0000-0000-0000-000000000001
+		summarizeBy: none
+		sourceColumn: order_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column customer_id
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000002
+		summarizeBy: none
+		sourceColumn: customer_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column order_date
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 00000003-0000-0000-0000-000000000003
+		summarizeBy: none
+		sourceColumn: order_date
+
+		annotation SummarizationSetBy = Automatic
+
+	column amount
+		dataType: double
+		lineageTag: 00000003-0000-0000-0000-000000000004
+		summarizeBy: sum
+		sourceColumn: amount
+
+		annotation SummarizationSetBy = Automatic
+
+	partition fact-sales = m
+		mode: import
+		queryGroup: 'Fact Tables'
+		source =
+				let
+				    Source = #"source-dataflow-standard",
+				    #"Removed Columns" = Table.RemoveColumns(Source, {"internal_flag"})
+				in
+				    #"Removed Columns"
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Exception
