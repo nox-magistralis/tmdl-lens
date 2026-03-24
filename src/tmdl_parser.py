@@ -250,6 +250,10 @@ def _parse_measure(block: str) -> Optional[Measure]:
         return None
     name = (m.group(1) or m.group(2)).strip()
 
+    # Capture inline DAX on the header line: measure 'Name' = DAX_EXPRESSION
+    inline = re.match(r"measure\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
+    inline_dax = inline.group(1).strip() if inline else ""
+
     dax_lines, in_dax = [], True
     for line in lines[1:]:
         s = line.strip()
@@ -262,9 +266,13 @@ def _parse_measure(block: str) -> Optional[Measure]:
     fmt    = re.search(r"formatString:\s*(.+)", block)
     desc   = re.search(r"description:\s*(.+)", block)
 
+    # Prefer inline DAX if multiline body is empty
+    multiline_dax = "\n".join(dax_lines).strip()
+    final_dax = multiline_dax if multiline_dax else inline_dax
+
     return Measure(
         name=name,
-        dax_expression="\n".join(dax_lines).strip(),
+        dax_expression=final_dax,
         display_folder=folder.group(1).strip().strip("'\"") if folder else "",
         format_string=fmt.group(1).strip().strip("'\"") if fmt else "",
         description=desc.group(1).strip().strip("'\"") if desc else "",
