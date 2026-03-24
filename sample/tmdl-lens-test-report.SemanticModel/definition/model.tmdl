@@ -1,0 +1,9 @@
+model Model
+	culture: en-US
+
+	table fact-sales
+	table dim-product
+	table dim-date
+	table param-metric-selector
+	table _measures
+	table source-sql-staging

@@ -1,0 +1,46 @@
+// Parameter table — field parameter (calculated partition with NAMEOF)
+// Parser must detect this as a parameter table, not a data source
+table param-metric-selector
+	lineageTag: 00000002-0000-0000-0000-000000000005
+
+	column param-metric-selector
+		lineageTag: 00000003-0000-0000-0000-000000000040
+		summarizeBy: none
+		sourceColumn: [Value1]
+		sortByColumn: 'param-metric-selector Order'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'param-metric-selector Fields'
+		isHidden
+		lineageTag: 00000003-0000-0000-0000-000000000041
+		summarizeBy: none
+		sourceColumn: [Value2]
+
+		extendedProperty ParameterMetadata =
+				{
+				  "version": 3,
+				  "kind": 2
+				}
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'param-metric-selector Order'
+		isHidden
+		formatString: 0
+		lineageTag: 00000003-0000-0000-0000-000000000042
+		summarizeBy: sum
+		sourceColumn: [Value3]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition param-metric-selector = calculated
+		mode: import
+		source =
+				{
+				    ("Total Sales", NAMEOF('_measures'[Total Sales Amount]), 0),
+				    ("Order Count", NAMEOF('_measures'[Order Count]), 1),
+				    ("Avg Order Value", NAMEOF('_measures'[Avg Order Value]), 2)
+				}
+
+	annotation PBI_Id = test00000000000000000000000000001

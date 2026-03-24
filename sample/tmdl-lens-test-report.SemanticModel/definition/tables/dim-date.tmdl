@@ -1,0 +1,36 @@
+// Calculated table — DAX partition, no M source
+// Parser must detect this as DAX/calculated, not a data source
+table dim-date
+	lineageTag: 00000002-0000-0000-0000-000000000004
+
+	column Date
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 00000003-0000-0000-0000-000000000030
+		summarizeBy: none
+		sourceColumn: Date
+
+		annotation SummarizationSetBy = Automatic
+
+	column Year
+		dataType: int64
+		formatString: 0
+		lineageTag: 00000003-0000-0000-0000-000000000031
+		summarizeBy: none
+		sourceColumn: Year
+
+		annotation SummarizationSetBy = Automatic
+
+	column MonthName
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000032
+		summarizeBy: none
+		sourceColumn: MonthName
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim-date = calculated
+		mode: import
+		source = CALENDARAUTO()
+
+	annotation PBI_NavigationStepName = Navigation
