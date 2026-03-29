@@ -2,9 +2,6 @@
 config.json
 src/config.json
 
-# Generated README files in sample folder
-sample/README.md
-
 # PyInstaller build output
 build/
 dist/
