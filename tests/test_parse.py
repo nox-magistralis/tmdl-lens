@@ -111,6 +111,36 @@ def run():
     else:
         print("\n  ✓  Parser + resolver working correctly.")
 
+    # ── 11. Security Roles ────────────────────────────────────────────────────
+    separator(f"11. Security Roles ({len(model.security_roles)})")
+    if model.security_roles:
+        for role in model.security_roles:
+            dynamic_flag = f" [dynamic: {role.dynamic_function}]" if role.is_dynamic else ""
+            print(f"  {role.name}{dynamic_flag}")
+            if role.table_filters:
+                for tf in role.table_filters:
+                    print(f"    table='{tf.table}'  filter={tf.dax_filter}")
+            else:
+                print("    (no table filters — full access)")
+    else:
+        print("  No security roles found.")
+
+    # ── 12. Calculation Groups ────────────────────────────────────────────────
+    calc_groups = [t for t in model.tables if t.table_type == "calc_group"]
+    separator(f"12. Calculation Groups ({len(calc_groups)})")
+    if calc_groups:
+        for cg in calc_groups:
+            print(f"  {cg.name}  ({len(cg.calculation_items)} items)")
+            for item in cg.calculation_items:
+                fmt_flag = f"  fmt='{item.format_string_expression}'" if item.format_string_expression else ""
+                print(f"    [{item.ordinal}] {item.name}{fmt_flag}")
+                if item.dax_expression:
+                    preview = item.dax_expression[:80].replace("\n", " ")
+                    suffix = "..." if len(item.dax_expression) > 80 else ""
+                    print(f"        DAX: {preview}{suffix}")
+    else:
+        print("  No calculation groups found.")
+
 
 if __name__ == "__main__":
     run()
