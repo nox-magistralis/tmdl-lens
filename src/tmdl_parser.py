@@ -310,6 +310,14 @@ def _parse_measure(block: str) -> Optional[Measure]:
 # Calculation items parser
 # ---------------------------------------------------------------------------
 
+def _dedent(text: str) -> str:
+    """Strip common leading whitespace from a backtick-block DAX string."""
+    lines = text.split("\n")
+    # Find minimum indent across non-empty lines
+    indents = [len(l) - len(l.lstrip()) for l in lines if l.strip()]
+    min_indent = min(indents) if indents else 0
+    return "\n".join(l[min_indent:] if len(l) >= min_indent else l for l in lines).strip()
+
 def _parse_calculation_items(content: str) -> list:
     """
     Extracts calculationItem blocks from a calc group table file.
@@ -336,7 +344,7 @@ def _parse_calculation_items(content: str) -> list:
         dax = ""
         bt_m = re.search(r"expression\s*=\s*```([\s\S]*?)```", block)
         if bt_m:
-            dax = bt_m.group(1).strip()
+            dax = _dedent(bt_m.group(1))
         else:
             inline_m = re.search(r"expression\s*=\s*(.+)", block)
             if inline_m:
@@ -346,7 +354,7 @@ def _parse_calculation_items(content: str) -> list:
         fmt_expr = ""
         fmt_bt = re.search(r"formatStringExpression\s*=\s*```([\s\S]*?)```", block)
         if fmt_bt:
-            fmt_expr = fmt_bt.group(1).strip()
+            fmt_expr = _dedent(fmt_bt.group(1))
         else:
             fmt_inline = re.search(r'formatStringExpression\s*=\s*"([^"]+)"', block)
             if fmt_inline:
