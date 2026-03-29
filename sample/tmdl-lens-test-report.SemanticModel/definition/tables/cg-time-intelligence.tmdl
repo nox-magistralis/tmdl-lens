@@ -1,0 +1,80 @@
+// Calculation group table — unit of measure selector
+// Structure taken from a real report, all domain-specific content replaced
+table cg-time-intelligence
+	lineageTag: 00000002-0000-0000-0000-000000000010
+
+	calculationGroup
+
+		calculationItem YTD
+			ordinal: 0
+
+			expression = ```
+					TOTALYTD(SELECTEDMEASURE(), 'dim-date'[Date])
+					```
+
+			formatStringExpression = ```
+					SELECTEDMEASUREFORMATSTRING()
+					```
+
+		calculationItem MTD
+			ordinal: 1
+
+			expression = ```
+					TOTALMTD(SELECTEDMEASURE(), 'dim-date'[Date])
+					```
+
+			formatStringExpression = ```
+					SELECTEDMEASUREFORMATSTRING()
+					```
+
+		calculationItem 'Rolling 12M'
+			ordinal: 2
+
+			expression = ```
+					CALCULATE(
+					    SELECTEDMEASURE(),
+					    DATESINPERIOD('dim-date'[Date], LASTDATE('dim-date'[Date]), -12, MONTH)
+					)
+					```
+
+			formatStringExpression = ```
+					SELECTEDMEASUREFORMATSTRING()
+					```
+
+		calculationItem 'Prior Year'
+			ordinal: 3
+
+			expression = ```
+					CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('dim-date'[Date]))
+					```
+
+			formatStringExpression = ```
+					SELECTEDMEASUREFORMATSTRING()
+					```
+
+		calculationItem 'YoY %'
+			ordinal: 4
+
+			expression = ```
+					DIVIDE(
+					    SELECTEDMEASURE() - CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('dim-date'[Date])),
+					    CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('dim-date'[Date]))
+					)
+					```
+
+			formatStringExpression = "0.00%"
+
+	column Name
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000050
+		sourceColumn: Name
+		sortByColumn: Ordinal
+
+		annotation SummarizationSetBy = Automatic
+
+	column Ordinal
+		dataType: int64
+		lineageTag: 00000003-0000-0000-0000-000000000051
+		sourceColumn: Ordinal
+
+		annotation SummarizationSetBy = Automatic
