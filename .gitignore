@@ -1,8 +1,14 @@
 # tmdl-lens user config — not committed, personal to each installation
 config.json
+src/config.json
 
 # Generated README files in sample folder
 sample/README.md
+
+# PyInstaller build output
+build/
+dist/
+*.spec
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
