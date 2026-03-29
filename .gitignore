@@ -1,3 +1,9 @@
+# tmdl-lens user config — not committed, personal to each installation
+config.json
+
+# Generated README files in sample folder
+sample/README.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

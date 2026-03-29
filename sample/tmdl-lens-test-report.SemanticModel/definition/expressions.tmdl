@@ -90,10 +90,10 @@ expression source-odbc =
 // ── PATTERN 6: SharePoint.Files() — file from SharePoint ─────────────────────
 expression source-sharepoint-file =
 		let
-		    Source = SharePoint.Files("https://myorg.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
+		    Source = SharePoint.Files("https://contoso.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
 		    FilteredFolder = Table.SelectRows(
 		        Source,
-		        each [Folder Path] = "https://myorg.sharepoint.com/sites/DataTeam/Shared Documents/Data/"
+		        each [Folder Path] = "https://contoso.sharepoint.com/sites/DataTeam/Shared Documents/Data/"
 		            and [Name] = "reference_data.csv"
 		    ),
 		    FileContent = FilteredFolder{0}[Content],
@@ -111,7 +111,7 @@ expression source-sharepoint-file =
 // ── PATTERN 7: SharePoint.Tables() — SharePoint list ─────────────────────────
 expression source-sharepoint-list =
 		let
-		    Source = SharePoint.Tables("https://myorg.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
+		    Source = SharePoint.Tables("https://contoso.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
 		    ProjectList = Source{[Name="Project Tracker"]}[Data],
 		    RemovedColumns = Table.SelectColumns(ProjectList, {"Title", "Status", "Owner", "DueDate"})
 		in
@@ -126,7 +126,7 @@ expression source-sharepoint-list =
 // ── PATTERN 8: Excel.Workbook() from SharePoint ──────────────────────────────
 expression source-excel-sharepoint =
 		let
-		    Source = SharePoint.Files("https://myorg.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
+		    Source = SharePoint.Files("https://contoso.sharepoint.com/sites/DataTeam", [ApiVersion = 15]),
 		    FilteredFile = Table.SelectRows(Source, each [Name] = "master_data.xlsx"),
 		    LatestFile = Table.SelectRows(FilteredFile, let latest = List.Max(FilteredFile[Date modified]) in each [Date modified] = latest),
 		    ImportedExcel = Excel.Workbook(LatestFile{0}[Content], true),
