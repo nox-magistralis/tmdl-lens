@@ -89,6 +89,12 @@ tmdl-lens/
 
 ---
 
+## Author
+
+**Marcin Mozol** — [github.com/nox-magistralis](https://github.com/nox-magistralis)
+
+---
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
