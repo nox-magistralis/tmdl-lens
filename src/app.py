@@ -23,6 +23,12 @@ from src.tmdl_parser import parse_semantic_model
 from src.source_resolver import resolve_sources
 from src.readme_generator import generate_readme
 
+try:
+    from src.watcher import TmdlWatcher, WATCHER_AVAILABLE
+except ImportError:
+    WATCHER_AVAILABLE = False
+    TmdlWatcher = None
+
 
 # ---------------------------------------------------------------------------
 # Theme
@@ -70,16 +76,31 @@ class App(ctk.CTk):
         self._ws_config: dict = dict(ws_cfg.DEFAULTS)
         self._last_run: str = "never"
         self._run_thread: threading.Thread | None = None
+        self._watcher: TmdlWatcher | None = None
+        self._watcher_enabled: bool = (
+            WATCHER_AVAILABLE
+            and self.config_data.get("features", {}).get("watcher", True)
+        )
+        self._loading: bool = False
 
         self._build_window()
         self._build_layout()
+        self._loading = True
         self._load_ui_from_config()
+        self._loading = False
         self._auto_save_config()
 
-        # Load workspace config if we already have a saved reports folder
+        # Load workspace config and start watcher if we have a saved reports folder
         saved_folder = self.config_data.get("reports_folder", "").strip()
         if saved_folder and os.path.isdir(saved_folder):
             self._load_workspace_config(saved_folder)
+            self._scan_reports(saved_folder)
+            if self.config_data.get("watch_enabled", True):
+                self.after(500, lambda: self._start_watcher(saved_folder))
+            else:
+                self.after(0, self._set_watcher_idle)
+        else:
+            self.after(0, self._set_watcher_idle)
 
     # ── Window ────────────────────────────────────────────────────────────────
 
@@ -330,9 +351,10 @@ class App(ctk.CTk):
         self._divider(frame)
 
         # ── File Watcher ──────────────────────────────────────────────────────
-        self._section_header(frame, "File Watcher", badge="active")
+        self._watcher_badge = self._section_header(frame, "File Watcher", badge="idle")
 
         self._watch_var = tk.BooleanVar(value=True)
+        self._watch_var.trace_add("write", self._on_watch_toggle)
         self._toggle_row(
             frame,
             "Watch for TMDL changes",
@@ -586,6 +608,11 @@ class App(ctk.CTk):
     def _log_initial_messages(self):
         self.log("tmdl-lens ready", "info")
         self.log("load a reports folder and press Run Now", "msg")
+        if not WATCHER_AVAILABLE:
+            self.log("watchdog not installed - file watcher disabled", "warn")
+            self.log('install with: pip install watchdog', "warn")
+        elif not self.config_data.get("features", {}).get("watcher", True):
+            self.log('file watcher disabled in config.json (features.watcher)', "warn")
 
     # ── Action bar ────────────────────────────────────────────────────────────
 
@@ -704,6 +731,8 @@ class App(ctk.CTk):
             text_color=COLORS["text_1"],
         ).pack(side="left")
 
+        badge_label = None
+
         if required:
             ctk.CTkLabel(
                 row, text="required",
@@ -715,18 +744,20 @@ class App(ctk.CTk):
             ).pack(side="left", padx=8)
 
         if badge:
-            ctk.CTkLabel(
+            badge_label = ctk.CTkLabel(
                 row, text=badge,
                 font=ctk.CTkFont(size=13),
-                text_color=COLORS["green"],
+                text_color=COLORS["text_3"],
                 fg_color=COLORS["surface"],
                 corner_radius=3,
                 padx=6, pady=2,
-            ).pack(side="left", padx=8)
+            )
+            badge_label.pack(side="left", padx=8)
 
         ctk.CTkFrame(row, height=1, fg_color=COLORS["border"]).pack(
             side="left", fill="x", expand=True, padx=(8, 0)
         )
+        return badge_label
 
     def _field_label(self, parent, text: str, sub: str = ""):
         label_row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -878,7 +909,9 @@ class App(ctk.CTk):
         if folder:
             self._reports_var.set(folder)
             self._scan_reports(folder)
-            self._load_workspace_config(folder)
+            self._load_workspace_config(folder)  # may write tmdl-lens.json
+            if self._watch_var.get():
+                self.after(200, lambda: self._start_watcher(folder))
 
     def _browse_output(self):
         folder = filedialog.askdirectory(title="Select output folder")
@@ -974,6 +1007,112 @@ class App(ctk.CTk):
             daemon=True,
         )
         self._run_thread.start()
+
+    # ── Watcher control ───────────────────────────────────────────────────────
+
+    def _start_watcher(self, folder: str):
+        if not self._watcher_enabled:
+            self.log("watcher unavailable - check requirements.txt", "warn")
+            return
+        if not folder or not os.path.isdir(folder):
+            self.log("watcher not started - no reports folder selected", "msg")
+            return
+        self._stop_watcher()
+        debounce_raw = self._debounce_var.get().replace(" sec", "")
+        try:
+            debounce = int(debounce_raw)
+        except ValueError:
+            debounce = 10
+        self._watcher = TmdlWatcher(
+            folder=folder,
+            debounce_seconds=debounce,
+            callback=self._on_watcher_trigger,
+        )
+        self._watcher.start()
+        self.log(f"watcher started · {folder}", "info")
+        self.after(0, lambda: self._watcher_label.configure(text="watcher active"))
+        self.after(0, lambda: self._watcher_badge.configure(
+            text="active", text_color=COLORS["green"]
+        ))
+
+    def _set_watcher_idle(self):
+        self._watcher_label.configure(text="watcher idle")
+        self._watcher_badge.configure(text="idle", text_color=COLORS["text_3"])
+
+    def _stop_watcher(self):
+        if self._watcher:
+            self._watcher.stop()
+            self._watcher = None
+            self.log("watcher stopped", "msg")
+        self.after(0, self._set_watcher_idle)
+
+    def _on_watch_toggle(self, *_):
+        """Called when the watch toggle changes value."""
+        if self._loading:
+            return
+        folder = self._reports_var.get().strip()
+        if self._watch_var.get():
+            self._start_watcher(folder)
+        else:
+            self._stop_watcher()
+
+    def _on_watcher_trigger(self, pbip_path: str):
+        """Called from watchdog thread when a debounced change fires."""
+        pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
+        self.log(f"change detected · {pbip_name}", "warn")
+        config = self._collect_config()
+        self._run_single(pbip_path, config)
+
+    def _run_single(self, pbip_path: str, config: dict):
+        """Run the pipeline for one .pbip file (called from watcher thread)."""
+        pbip_dir   = os.path.dirname(pbip_path)
+        pbip_name  = os.path.splitext(os.path.basename(pbip_path))[0]
+        model_dir  = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
+        output_folder = config.get("output_folder", "").strip() or config["reports_folder"]
+        readme_path   = os.path.join(pbip_dir, "README.md")
+        overwrite      = config.get("overwrite_readme", False)
+        include_dax    = config.get("include_dax", True)
+
+        if not os.path.isdir(model_dir):
+            self.log(f"{pbip_name} - no SemanticModel folder", "warn")
+            return
+        if os.path.exists(readme_path) and not overwrite:
+            self.log(f"{pbip_name} - skipped (README exists)", "msg")
+            return
+
+        self.log(f"→ {pbip_name}", "msg")
+        try:
+            self.log("  parsing TMDL...", "msg")
+            model = parse_semantic_model(model_dir, pbip_name)
+            table_count   = len(model.tables)
+            measure_count = sum(len(t.measures) for t in model.tables)
+            self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
+
+            resolved    = resolve_sources(model.source_expressions, model.m_parameters)
+            report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
+            gen_config  = {
+                "report_name":      pbip_name,
+                "owner":            report_meta["owner"],
+                "team":             report_meta["team"],
+                "refresh_schedule": report_meta["refresh_schedule"],
+                "include_dax":      include_dax,
+            }
+            readme = generate_readme(model, resolved, gen_config)
+
+            out_path = os.path.join(output_folder, pbip_name, "README.md") \
+                if output_folder != config["reports_folder"] \
+                else readme_path
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(readme)
+
+            self.log("  README.md written", "ok")
+            now = datetime.now().strftime("%H:%M:%S")
+            self.after(0, lambda: self._last_run_label.configure(
+                text=f"last run · {now}"
+            ))
+        except Exception as e:
+            self.log(f"  error: {e}", "err")
 
     def _run_pipeline(self, config: dict):
         reports_folder = config["reports_folder"]
@@ -1083,9 +1222,11 @@ class App(ctk.CTk):
     # ── Close ─────────────────────────────────────────────────────────────────
 
     def _auto_save_config(self):
-        """Save config on startup so the file always exists after first launch."""
-        self.config_data = self._collect_config()
-        save_config(self.config_data)
+        """Write config.json on first launch only — don't overwrite an existing file."""
+        from src.config import config_path
+        if not os.path.exists(config_path()):
+            self.config_data = self._collect_config()
+            save_config(self.config_data)
 
     def _center_window(self):
         self.update_idletasks()
@@ -1101,6 +1242,7 @@ class App(ctk.CTk):
         """Auto-save config on close so settings persist without requiring manual Save."""
         self.config_data = self._collect_config()
         save_config(self.config_data)
+        self._stop_watcher()
         self.destroy()
 
 
