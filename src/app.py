@@ -31,26 +31,26 @@ from src.readme_generator import generate_readme
 APP_VERSION = "0.1.0"
 
 COLORS = {
-    "bg":          "#0f1117",
-    "surface":     "#181c27",
-    "border":      "#252a38",
-    "border_hi":   "#2e3548",
-    "accent":      "#4f8ef7",
-    "accent_dim":  "#1e3a6e",
+    "bg":          "#1a1d26",
+    "surface":     "#22263a",
+    "border":      "#313650",
+    "border_hi":   "#3d4260",
+    "accent":      "#5b9cf6",
+    "accent_dim":  "#1f3d72",
     "green":       "#34c78a",
     "amber":       "#f5a623",
     "red":         "#e05c5c",
-    "text_1":      "#e8ecf4",
-    "text_2":      "#7b8499",
-    "text_3":      "#4a5068",
+    "text_1":      "#f0f3fa",
+    "text_2":      "#9aa3b8",
+    "text_3":      "#6b738f",
 }
 
 LOG_COLORS = {
     "ok":   "#34c78a",
     "warn": "#f5a623",
     "err":  "#e05c5c",
-    "info": "#4f8ef7",
-    "msg":  "#7b8499",
+    "info": "#5b9cf6",
+    "msg":  "#9aa3b8",
 }
 
 ctk.set_appearance_mode("dark")
@@ -85,9 +85,10 @@ class App(ctk.CTk):
 
     def _build_window(self):
         self.title("tmdl-lens")
-        self.geometry("1000x660")
-        self.minsize(860, 560)
+        self.geometry("1200x820")
+        self.minsize(960, 660)
         self.configure(fg_color=COLORS["bg"])
+        self.after(0, self._center_window)
 
         # Intercept close to allow future tray minimise
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -109,7 +110,7 @@ class App(ctk.CTk):
     def _build_sidebar(self):
         sidebar = ctk.CTkFrame(
             self, width=48, corner_radius=0,
-            fg_color="#0b0e16",
+            fg_color="#141720",
             border_width=1, border_color=COLORS["border"],
         )
         sidebar.grid(row=0, column=0, sticky="ns")
@@ -197,11 +198,11 @@ class App(ctk.CTk):
         for i, tab in enumerate(tabs):
             btn = ctk.CTkButton(
                 tabbar, text=tab,
-                width=90, height=28,
+                width=110, height=30,
                 corner_radius=5,
-                font=ctk.CTkFont(family="Courier New", size=10),
+                font=ctk.CTkFont(size=14),
                 fg_color=COLORS["surface"] if i == 0 else "transparent",
-                text_color=COLORS["text_1"] if i == 0 else COLORS["text_3"],
+                text_color=COLORS["text_1"] if i == 0 else COLORS["text_2"],
                 border_width=1 if i == 0 else 0,
                 border_color=COLORS["border"],
                 hover_color=COLORS["border"],
@@ -225,7 +226,7 @@ class App(ctk.CTk):
             else:
                 btn.configure(
                     fg_color="transparent",
-                    text_color=COLORS["text_3"],
+                    text_color=COLORS["text_2"],
                     border_width=0,
                 )
         # Show/hide tab frames
@@ -350,8 +351,8 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             debounce_frame, text="debounce",
-            font=ctk.CTkFont(family="Courier New", size=10),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_1"],
         ).pack(side="left", padx=(12, 8), pady=8)
 
         self._debounce_var = tk.StringVar(value="10 sec")
@@ -363,15 +364,15 @@ class App(ctk.CTk):
             fg_color=COLORS["bg"],
             button_color=COLORS["border"],
             button_hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_2"],
-            font=ctk.CTkFont(family="Courier New", size=11),
+            text_color=COLORS["text_1"],
+            font=ctk.CTkFont(size=13),
         )
         debounce_menu.pack(side="left", pady=8)
 
         self._watch_count_label = ctk.CTkLabel(
             debounce_frame, text="watching 0 reports",
-            font=ctk.CTkFont(family="Courier New", size=10),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_1"],
         )
         self._watch_count_label.pack(side="right", padx=12, pady=8)
 
@@ -411,21 +412,21 @@ class App(ctk.CTk):
         # Save button — writes to tmdl-lens.json, not config.json
         ctk.CTkButton(
             frame, text="Save metadata",
-            width=140, height=32,
+            width=140, height=34,
             corner_radius=6,
             fg_color=COLORS["surface"],
             hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_2"],
+            text_color=COLORS["text_1"],
             border_width=1, border_color=COLORS["border"],
-            font=ctk.CTkFont(family="Courier New", size=12),
+            font=ctk.CTkFont(size=13),
             command=self._on_save_metadata,
         ).pack(anchor="w", padx=22, pady=(16, 8))
 
         # Shows which tmdl-lens.json is currently active
         self._ws_path_label = ctk.CTkLabel(
             frame, text="no workspace loaded",
-            font=ctk.CTkFont(family="Courier New", size=10),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_2"],
             justify="left",
             wraplength=480,
         )
@@ -434,8 +435,8 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             frame,
             text="These values apply to all reports in the workspace as defaults.\nPer-report overrides can be added directly in tmdl-lens.json.",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_2"],
             justify="left",
         ).pack(anchor="w", padx=22, pady=(4, 20))
 
@@ -473,8 +474,8 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             sched_row, text="day",
-            font=ctk.CTkFont(family="Courier New", size=10),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_1"],
         ).pack(side="left", padx=(12, 8), pady=10)
 
         self._sched_day_var = tk.StringVar(value="Mon")
@@ -486,14 +487,14 @@ class App(ctk.CTk):
             fg_color=COLORS["bg"],
             button_color=COLORS["border"],
             button_hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_2"],
-            font=ctk.CTkFont(family="Courier New", size=11),
+            text_color=COLORS["text_1"],
+            font=ctk.CTkFont(size=13),
         ).pack(side="left", pady=10)
 
         ctk.CTkLabel(
             sched_row, text="time",
-            font=ctk.CTkFont(family="Courier New", size=10),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_1"],
         ).pack(side="left", padx=(16, 8), pady=10)
 
         self._sched_time_var = tk.StringVar(value="08:00")
@@ -503,8 +504,8 @@ class App(ctk.CTk):
             width=70, height=26,
             fg_color=COLORS["bg"],
             border_color=COLORS["border"],
-            text_color=COLORS["text_2"],
-            font=ctk.CTkFont(family="Courier New", size=11),
+            text_color=COLORS["text_1"],
+            font=ctk.CTkFont(size=13),
         ).pack(side="left", pady=10)
 
         self._divider(frame)
@@ -512,8 +513,8 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             frame,
             text="Task Scheduler registration requires administrator privileges.\nThe task will run tmdl-lens silently on login and at the scheduled time.",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_3"],
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_2"],
             justify="left",
         ).pack(anchor="w", padx=22, pady=(0, 20))
 
@@ -521,7 +522,7 @@ class App(ctk.CTk):
 
     def _build_log_panel(self, parent):
         panel = ctk.CTkFrame(
-            parent, width=300, corner_radius=0,
+            parent, width=340, corner_radius=0,
             fg_color=COLORS["surface"],
             border_width=1, border_color=COLORS["border"],
         )
@@ -539,9 +540,9 @@ class App(ctk.CTk):
         header.grid(row=0, column=0, sticky="ew")
 
         ctk.CTkLabel(
-            header, text="OUTPUT LOG",
-            font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_3"],
+            header, text="Output log",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_2"],
         ).pack(side="left", padx=14)
 
         self._log_status_dot = ctk.CTkLabel(
@@ -578,7 +579,7 @@ class App(ctk.CTk):
         # Configure colour tags
         for tag, color in LOG_COLORS.items():
             self._log_text.tag_configure(tag, foreground=color)
-        self._log_text.tag_configure("time", foreground=COLORS["text_3"])
+        self._log_text.tag_configure("time", foreground="#8b94aa")
 
         self._log_initial_messages()
 
@@ -605,7 +606,7 @@ class App(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color="#6ba3f9",
             text_color="white",
-            font=ctk.CTkFont(family="Courier New", size=13),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self._on_run_now,
         )
         self._run_btn.grid(row=0, column=0, padx=(14, 6), pady=10)
@@ -617,9 +618,9 @@ class App(ctk.CTk):
             corner_radius=6,
             fg_color=COLORS["surface"],
             hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_2"],
+            text_color=COLORS["text_1"],
             border_width=1, border_color=COLORS["border"],
-            font=ctk.CTkFont(family="Courier New", size=13),
+            font=ctk.CTkFont(size=13),
             command=self._on_save_config,
         ).grid(row=0, column=1, padx=4, pady=10)
 
@@ -630,8 +631,8 @@ class App(ctk.CTk):
             corner_radius=6,
             fg_color="transparent",
             hover_color=COLORS["border"],
-            text_color=COLORS["text_3"],
-            font=ctk.CTkFont(family="Courier New", size=13),
+            text_color=COLORS["text_2"],
+            font=ctk.CTkFont(size=13),
             command=self._on_clear_log,
         ).grid(row=0, column=2, padx=4, pady=10)
 
@@ -639,7 +640,7 @@ class App(ctk.CTk):
         self._last_run_label = ctk.CTkLabel(
             bar, text="last run · never",
             font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_3"],
+            text_color=COLORS["text_2"],
         )
         self._last_run_label.grid(row=0, column=11, padx=14, pady=10, sticky="e")
 
@@ -648,7 +649,7 @@ class App(ctk.CTk):
     def _build_statusbar(self):
         bar = ctk.CTkFrame(
             self, height=24, corner_radius=0,
-            fg_color="#0b0e16",
+            fg_color="#141720",
             border_width=1, border_color=COLORS["border"],
         )
         bar.grid(row=1, column=0, columnspan=2, sticky="ew")
@@ -664,7 +665,7 @@ class App(ctk.CTk):
         self._watcher_label = ctk.CTkLabel(
             bar, text="watcher idle",
             font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_3"],
+            text_color=COLORS["text_2"],
         )
         self._watcher_label.grid(row=0, column=1, padx=(0, 12), pady=0)
 
@@ -678,7 +679,7 @@ class App(ctk.CTk):
         self._schedule_label = ctk.CTkLabel(
             bar, text="schedule · not configured",
             font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_3"],
+            text_color=COLORS["text_2"],
         )
         self._schedule_label.grid(row=0, column=3, padx=(0, 12), pady=0)
 
@@ -686,7 +687,7 @@ class App(ctk.CTk):
         self._report_count_label = ctk.CTkLabel(
             bar, text="0 reports",
             font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_3"],
+            text_color=COLORS["text_2"],
         )
         self._report_count_label.grid(row=0, column=11, padx=14, pady=0, sticky="e")
 
@@ -698,15 +699,15 @@ class App(ctk.CTk):
         row.pack(fill="x", padx=22, pady=(18, 6))
 
         ctk.CTkLabel(
-            row, text=title.upper(),
-            font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_3"],
+            row, text=title,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=COLORS["text_1"],
         ).pack(side="left")
 
         if required:
             ctk.CTkLabel(
                 row, text="required",
-                font=ctk.CTkFont(family="Courier New", size=9),
+                font=ctk.CTkFont(size=13),
                 text_color=COLORS["accent"],
                 fg_color=COLORS["accent_dim"],
                 corner_radius=3,
@@ -716,7 +717,7 @@ class App(ctk.CTk):
         if badge:
             ctk.CTkLabel(
                 row, text=badge,
-                font=ctk.CTkFont(family="Courier New", size=9),
+                font=ctk.CTkFont(size=13),
                 text_color=COLORS["green"],
                 fg_color=COLORS["surface"],
                 corner_radius=3,
@@ -732,14 +733,14 @@ class App(ctk.CTk):
         label_row.pack(fill="x", padx=22, pady=(0, 4))
         ctk.CTkLabel(
             label_row, text=text,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_2"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text_1"],
         ).pack(side="left")
         if sub:
             ctk.CTkLabel(
                 label_row, text=f"  ({sub})",
                 font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_3"],
+                text_color=COLORS["text_2"],
             ).pack(side="left")
 
     def _path_row(self, parent, var: tk.StringVar, btn_text: str,
@@ -760,18 +761,18 @@ class App(ctk.CTk):
             text_color=COLORS["text_1"],
             placeholder_text=placeholder,
             placeholder_text_color=COLORS["text_3"],
-            font=ctk.CTkFont(family="Courier New", size=11),
+            font=ctk.CTkFont(size=13),
         )
         entry.grid(row=0, column=0, sticky="ew", padx=(10, 4), pady=4)
 
         ctk.CTkButton(
             row, text=btn_text,
-            width=70, height=24,
+            width=82, height=28,
             corner_radius=3,
             fg_color=COLORS["border"],
             hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_2"],
-            font=ctk.CTkFont(family="Courier New", size=10),
+            text_color=COLORS["text_1"],
+            font=ctk.CTkFont(size=13),
             command=cmd,
         ).grid(row=0, column=1, padx=(0, 6), pady=4)
 
@@ -790,7 +791,7 @@ class App(ctk.CTk):
             text_color=COLORS["text_1"],
             placeholder_text=placeholder,
             placeholder_text_color=COLORS["text_3"],
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=13),
         ).pack(fill="x", padx=10, pady=6)
 
     def _toggle_row(self, parent, title: str, subtitle: str,
@@ -1085,6 +1086,16 @@ class App(ctk.CTk):
         """Save config on startup so the file always exists after first launch."""
         self.config_data = self._collect_config()
         save_config(self.config_data)
+
+    def _center_window(self):
+        self.update_idletasks()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _on_close(self):
         """Auto-save config on close so settings persist without requiring manual Save."""
