@@ -26,6 +26,9 @@ DEFAULTS = {
     "schedule_enabled": False,
     "schedule_day":     "Mon",
     "schedule_time":    "08:00",
+    "features": {
+        "watcher": True,
+    },
 }
 
 
@@ -55,11 +58,18 @@ def load() -> dict:
     """Load config from disk, merging with defaults for any missing keys."""
     path = _config_path()
     config = dict(DEFAULTS)
+    config["features"] = dict(DEFAULTS["features"])
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-            config.update({k: v for k, v in saved.items() if k in DEFAULTS})
+            for k, v in saved.items():
+                if k not in DEFAULTS:
+                    continue
+                if k == "features" and isinstance(v, dict):
+                    config["features"] = {**DEFAULTS["features"], **v}
+                else:
+                    config[k] = v
         except (json.JSONDecodeError, OSError):
             pass
     return config
