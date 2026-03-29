@@ -1070,16 +1070,11 @@ class App(ctk.CTk):
         model_dir  = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
         output_folder = config.get("output_folder", "").strip() or config["reports_folder"]
         readme_path   = os.path.join(pbip_dir, "README.md")
-        overwrite      = config.get("overwrite_readme", False)
         include_dax    = config.get("include_dax", True)
 
         if not os.path.isdir(model_dir):
             self.log(f"{pbip_name} - no SemanticModel folder", "warn")
             return
-        if os.path.exists(readme_path) and not overwrite:
-            self.log(f"{pbip_name} - skipped (README exists)", "msg")
-            return
-
         self.log(f"→ {pbip_name}", "msg")
         try:
             self.log("  parsing TMDL...", "msg")

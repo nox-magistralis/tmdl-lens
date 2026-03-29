@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "artifacts": [
+    {
+      "report": {
+        "path": "tmdl-lens-test-report.Report"
+      }
+    }
+  ],
+  "settings": {}
+}

@@ -1,12 +1,12 @@
-# tmdl-lens Test Report
+# tmdl-lens-test-report
 
 ## Overview
 
 | Property | Value |
 |---|---|
-| **Owner** | Report Owner |
-| **Team** | BI Team |
-| **Refresh Schedule** | Daily at 06:00 UTC |
+| **Owner** |  |
+| **Team** |  |
+| **Refresh Schedule** |  |
 | **Last Generated** | 29 March 2026 |
 
 ---
