@@ -327,6 +327,18 @@ def _table_detail_block(
                 lines.append(f"- `{col.name}`")
         lines.append("")
 
+    # Calculation group items
+    if table.calculation_items:
+        lines += ["**Calculation Items**", "", "| Item | Ordinal | Format String |", "|---|---|---|"]
+        for item in table.calculation_items:
+            fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "—"
+            lines.append(f"| `{item.name}` | {item.ordinal} | {fmt} |")
+        lines.append("")
+        if include_dax:
+            lines += ["**Item DAX**", ""]
+            for item in table.calculation_items:
+                lines += [f"**`{item.name}`**", "```dax", item.dax_expression, "```", ""]
+
     # Measures inline
     if table.measures:
         lines += ["**Measures**", "", "| Measure | Format | Description |", "|---|---|---|"]
@@ -344,12 +356,16 @@ def _table_detail_block(
 
 def _table_details_section(
     loaded_tables: list[Table],
+    support_tables: list[Table],
     resolved: dict[str, ResolvedSource],
     include_dax: bool,
 ) -> str:
     lines = ["## 2. Table Details", ""]
-    if loaded_tables:
-        for t in loaded_tables:
+    # Loaded tables first, then calc groups from support tables
+    calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
+    all_tables = loaded_tables + calc_groups
+    if all_tables:
+        for t in all_tables:
             lines.append(_table_detail_block(t, resolved, include_dax))
             lines += ["---", ""]
     else:
@@ -425,17 +441,83 @@ def _relationships_section(model: SemanticModel) -> str:
     return "\n".join(lines)
 
 
+def _build_param_usage_map(model: SemanticModel) -> dict[str, list[str]]:
+    """
+    Returns a dict mapping parameter name -> list of expression names that
+    directly reference it. Only catches structural references the parser
+    already extracted into named fields (server, database, url, file_name, etc.).
+    More complex patterns — conditional logic, Record.Field() calls, dynamic
+    concatenation — are not detectable statically.
+    """
+    usage: dict[str, list[str]] = {p.name: [] for p in model.m_parameters}
+    param_names = set(usage.keys())
+
+    for expr in model.source_expressions:
+        # Check every string field on the expression for [param:Name] markers
+        for field_val in (
+            expr.server, expr.database, expr.url,
+            expr.file_name, expr.sharepoint_url, expr.dsn,
+        ):
+            if not field_val:
+                continue
+            for pname in param_names:
+                if f"[param:{pname}]" in field_val:
+                    if expr.name not in usage[pname]:
+                        usage[pname].append(expr.name)
+
+    return usage
+
+
+def _security_roles_section(model: SemanticModel) -> str:
+    lines = ["## 5. Security Roles", ""]
+
+    if not model.security_roles:
+        lines += ["*No security roles defined.*", "", "---", ""]
+        return "\n".join(lines)
+
+    lines += [
+        "| Role | Table | Filter | Dynamic |",
+        "|---|---|---|---|",
+    ]
+    for role in model.security_roles:
+        if not role.table_filters:
+            # Full access role — one row, no filter
+            dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
+            lines.append(f"| `{role.name}` | — | — | {dynamic_label} |")
+        else:
+            for i, tf in enumerate(role.table_filters):
+                role_cell   = f"`{role.name}`" if i == 0 else ""
+                dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
+                dyn_cell    = dynamic_label if i == 0 else ""
+                lines.append(f"| {role_cell} | `{tf.table}` | `{tf.dax_filter}` | {dyn_cell} |")
+
+    lines += ["", "---", ""]
+    return "\n".join(lines)
+
+
 def _m_parameters_section(model: SemanticModel) -> str:
-    lines = ["## 5. M Parameters", ""]
+    lines = ["## 6. M Parameters", ""]
 
     if not model.m_parameters:
         lines += ["*No M parameters defined.*", "", "---", ""]
         return "\n".join(lines)
 
-    lines += ["| Parameter | Type | Value |", "|---|---|---|"]
+    usage_map = _build_param_usage_map(model)
+
+    lines += ["| Parameter | Type | Value | Used By |", "|---|---|---|---|"]
     for p in model.m_parameters:
-        lines.append(f"| `{p.name}` | {p.param_type} | `{p.value}` |")
-    lines += ["", "---", ""]
+        used_by = usage_map.get(p.name, [])
+        used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "—"
+        lines.append(f"| `{p.name}` | {p.param_type} | `{p.value}` | {used_cell} |")
+
+    lines += [
+        "",
+        "> *Only direct parameter references in connector calls are shown.",
+        "> Parameters used in conditional logic or computed expressions may not appear here.*",
+        "",
+        "---",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -475,7 +557,7 @@ def _statistics_section(
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "—"
 
     lines = [
-        "## 6. Model Statistics",
+        "## 7. Model Statistics",
         "",
         "| Category | Count | Items |",
         "|---|---|---|",
@@ -541,7 +623,7 @@ def generate_readme(
     sections.append(_data_sources_section(loaded, staging, support, resolved, model))
 
     # 2. Table Details
-    sections.append(_table_details_section(loaded, resolved, include_dax))
+    sections.append(_table_details_section(loaded, support, resolved, include_dax))
 
     # 3. Measures — always present
     sections.append(_measures_section(model.tables, include_dax))
@@ -549,7 +631,10 @@ def generate_readme(
     # 4. Relationships — always present
     sections.append(_relationships_section(model))
 
-    # 5. M Parameters — always present
+    # 5. Security Roles — always present
+    sections.append(_security_roles_section(model))
+
+    # 6. M Parameters — always present
     sections.append(_m_parameters_section(model))
 
     # Unresolved sources warning (only if needed)
@@ -557,7 +642,7 @@ def generate_readme(
     if unresolved:
         sections.append(unresolved)
 
-    # 6. Statistics
+    # 7. Statistics
     sections.append(_statistics_section(model, loaded, support, staging))
 
     # Footer
