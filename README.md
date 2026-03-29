@@ -10,6 +10,8 @@ Runs as a standalone Windows desktop app with a live file watcher that regenerat
 
 ## What it documents
 
+See a [real example output](sample/README.md) generated from the included sample report.
+
 Each generated README includes:
 
 - **Data Sources** - connector type and resolved source detail for every query
@@ -41,6 +43,8 @@ python main.py
 Download the latest `tmdl-lens.exe` from the [Releases](https://github.com/nox-magistralis/tmdl-lens/releases) page. No Python or pip required — just run the `.exe` directly.
 
 A `config.json` file will be created alongside the executable on first run to store your settings.
+
+> **Note:** Windows may show a SmartScreen warning on first run. Click **More info** then **Run anyway**. This is expected for unsigned applications.
 
 ---
 
