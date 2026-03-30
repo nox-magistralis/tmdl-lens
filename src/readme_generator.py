@@ -39,6 +39,7 @@ _SOURCE_TYPE_LABEL = {
     "sql":               "SQL Database",
     "sql_native_query":  "SQL (Native Query)",
     "odbc":              "ODBC",
+    "oledb":             "OLE DB",
     "sharepoint_files":  "SharePoint Files",
     "sharepoint_tables": "SharePoint List",
     "excel_sharepoint":  "Excel (SharePoint)",
@@ -47,7 +48,30 @@ _SOURCE_TYPE_LABEL = {
     "web_api":           "Web API",
     "odata":             "OData",
     "hardcoded":         "Hardcoded (Inline M)",
+    "embedded":          "Embedded Data",
+    "smartsheet":        "Smartsheet",
+    "table_combine":     "Combined Queries",
+    "azure_storage":     "Azure Blob Storage",
+    "adls":              "Azure Data Lake Storage",
+    "lakehouse":         "Microsoft Fabric Lakehouse",
+    "fabric_warehouse":  "Microsoft Fabric Warehouse",
+    "databricks":        "Databricks",
+    "snowflake":         "Snowflake",
+    "google_analytics":  "Google Analytics",
+    "bigquery":          "Google BigQuery",
+    "salesforce":        "Salesforce",
+    "exchange":          "Exchange",
+    "active_directory":  "Active Directory",
+    "sap_hana":          "SAP HANA",
+    "sap_bw":            "SAP BW",
+    "oracle":            "Oracle Database",
+    "mysql":             "MySQL",
+    "postgresql":        "PostgreSQL",
+    "teradata":          "Teradata",
+    "db2":               "IBM Db2",
+    "connector_unknown": "Unknown Connector",
     "derived":           "Derived Query",
+    "derived_table":     "Derived Query",
     "dynamic":           "Dynamic M",
     "unresolved":        "Unresolved",
     "function_def":      "Helper Function",
@@ -58,46 +82,31 @@ def _source_type_label(source_type: str) -> str:
     return _SOURCE_TYPE_LABEL.get(source_type, source_type.replace("_", " ").title())
 
 
-def _source_detail(rs: ResolvedSource) -> str:
+def _source_label(rs: ResolvedSource) -> str:
     """
-    Returns the most useful identifying detail for a resolved source,
-    without repeating the connector name. Used in Section 1 table.
+    Returns the display string for the Source column in the Data Sources table.
+    Uses rs.label which already contains the full chain (e.g. 'FVInput -> Smartsheet (US)').
+    Falls back to manual_label if set. Returns '-' for scalar/helper types.
     """
-    t = rs.source_type
-    if t in ("dataflow_pbi", "dataflow_platform"):
-        return rs.entity or "-"
-    if t in ("sql", "sql_native_query"):
-        parts = []
-        if rs.server:   parts.append(rs.server)
-        if rs.database: parts.append(rs.database)
-        if rs.schema and rs.table_or_view:
-            parts.append(f"{rs.schema}.{rs.table_or_view}")
-        return " / ".join(parts) if parts else "-"
-    if t == "odbc":
-        if rs.schema and rs.table_or_view:
-            return f"{rs.dsn} / {rs.schema}.{rs.table_or_view}"
-        return rs.dsn or "-"
-    if t in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint"):
-        parts = []
-        if rs.sharepoint_url: parts.append(rs.sharepoint_url)
-        if rs.file_name:      parts.append(rs.file_name)
-        if rs.sheet_name:     parts.append(rs.sheet_name)
-        if rs.table_or_view:  parts.append(rs.table_or_view)
-        return " / ".join(parts) if parts else "-"
-    if t in ("excel_local", "csv_local"):
-        detail = rs.file_name or "-"
-        if rs.sheet_name:
-            detail += f" / {rs.sheet_name}"
-        return detail
-    if t in ("web_api", "odata"):
-        return rs.url or "-"
-    if t == "hardcoded":
-        return "Inline M"
-    if t == "dynamic":
-        return rs.manual_label or "Runtime URL - manual label required"
+    if rs.manual_label:
+        return rs.manual_label
     if rs.unresolved:
-        return rs.manual_label or "Unresolved"
-    return "-"
+        return rs.unresolved_reason or "Unresolved"
+    if rs.source_type in ("scalar_helper", "function_def", "embedded", "hardcoded",
+                           "calc_series", "dynamic"):
+        return "-"
+    label = rs.label or "-"
+    # Strip the leading source type prefix if it duplicates the Source Type column
+    # e.g. "Power Platform Dataflow -> entity" -> just show "entity"
+    # for dataflows, just return the entity since the connector type is already in Source Type
+    if rs.source_type in ("dataflow_pbi", "dataflow_platform"):
+        if rs.entity:
+            # If there's a chain (derived -> dataflow), show full label
+            if rs.chain:
+                return label
+            return rs.entity
+        return label
+    return label
 
 
 # ---------------------------------------------------------------------------
@@ -127,18 +136,13 @@ def _model_summary(
     support_tables: list[Table],
     model: SemanticModel,
 ) -> str:
-    """
-    One-line summary placed at the top of Section 1.
-    Uses generic "loaded / not loaded" language — no inferred type labels.
-    """
     n_loaded   = len(loaded_tables)
     n_staging  = len(staging_tables)
-    n_support  = len(support_tables)
     n_meas     = sum(len(t.measures) for t in model.tables)
     n_rels     = len(model.relationships)
 
     parts = [f"{n_loaded} loaded {'table' if n_loaded == 1 else 'tables'}"]
-    if n_support:
+    if support_tables:
         labels = []
         calc   = [t for t in support_tables if t.table_type == "calculated"]
         fp     = [t for t in support_tables if t.table_type == "field_parameter"]
@@ -192,11 +196,8 @@ def _data_sources_section(
     model: SemanticModel,
 ) -> str:
     lines = ["## 1. Data Sources", ""]
-
-    # Summary sentence
     lines += [_model_summary(loaded_tables, staging_tables, support_tables, model), ""]
 
-    # Loaded tables
     if loaded_tables:
         lines += [
             "| Table | Source Type | Source |",
@@ -206,7 +207,7 @@ def _data_sources_section(
             rs = get_table_source(t, resolved)
             if rs:
                 src_type = _source_type_label(rs.source_type)
-                label    = rs.manual_label or _source_detail(rs)
+                label    = _source_label(rs)
             else:
                 src_type = "—"
                 label    = "—"
@@ -215,7 +216,6 @@ def _data_sources_section(
     else:
         lines += ["*No loaded tables found.*", ""]
 
-    # Support tables block (calculated, field parameters, measures-only, calc groups)
     if support_tables:
         lines += [
             "### Support Tables",
@@ -227,7 +227,6 @@ def _data_sources_section(
             lines.append(f"| `{t.name}` | {_table_type_label(t.table_type)} |")
         lines.append("")
 
-    # Not-loaded tables block
     if staging_tables:
         lines += [
             "### Not Loaded",
@@ -242,7 +241,7 @@ def _data_sources_section(
             rs = get_table_source(t, resolved)
             if rs:
                 src_type = _source_type_label(rs.source_type)
-                label    = rs.manual_label or _source_detail(rs)
+                label    = _source_label(rs)
             else:
                 src_type = "—"
                 label    = "—"
@@ -286,6 +285,8 @@ def _table_detail_block(
             lines.append(f"**Sheet:** `{rs.sheet_name}`  ")
         if rs.source_type in ("web_api", "odata") and rs.url:
             lines.append(f"**URL:** `{rs.url}`  ")
+        if rs.chain:
+            lines.append(f"**Chain:** `{rs.label}`  ")
         if rs.unresolved:
             lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
     elif table.table_type == "calculated":
@@ -302,7 +303,6 @@ def _table_detail_block(
 
     lines.append("")
 
-    # Visible columns
     visible_cols = [c for c in table.columns if not c.is_hidden and not c.is_calculated]
     if visible_cols:
         lines += ["**Columns**", "", "| Column | Type |", "|---|---|"]
@@ -310,13 +310,11 @@ def _table_detail_block(
             lines.append(f"| `{col.name}` | {_dtype(col.data_type)} |")
         lines.append("")
 
-    # Hidden columns — listed compactly
     hidden_cols = [c for c in table.columns if c.is_hidden and not c.is_calculated]
     if hidden_cols:
         details = ", ".join(f"`{c.name}`" for c in hidden_cols)
         lines += [f"**Hidden Columns:** {details}  ", ""]
 
-    # Calculated columns
     calc_cols = [c for c in table.columns if c.is_calculated]
     if calc_cols:
         lines += ["**Calculated Columns**", ""]
@@ -327,7 +325,6 @@ def _table_detail_block(
                 lines.append(f"- `{col.name}`")
         lines.append("")
 
-    # Calculation group items
     if table.calculation_items:
         lines += ["**Calculation Items**", "", "| Item | Ordinal | Format String |", "|---|---|---|"]
         for item in table.calculation_items:
@@ -339,7 +336,6 @@ def _table_detail_block(
             for item in table.calculation_items:
                 lines += [f"**`{item.name}`**", "```dax", item.dax_expression, "```", ""]
 
-    # Measures inline
     if table.measures:
         lines += ["**Measures**", "", "| Measure | Format | Description |", "|---|---|---|"]
         for m in table.measures:
@@ -361,7 +357,6 @@ def _table_details_section(
     include_dax: bool,
 ) -> str:
     lines = ["## 2. Table Details", ""]
-    # Loaded tables first, then calc groups from support tables
     calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
     all_tables = loaded_tables + calc_groups
     if all_tables:
@@ -375,7 +370,6 @@ def _table_details_section(
 
 def _measures_section(tables: list[Table], include_dax: bool) -> str:
     all_measures = [(t.name, m) for t in tables for m in t.measures]
-
     lines = ["## 3. Measures", ""]
 
     if not all_measures:
@@ -394,7 +388,6 @@ def _measures_section(tables: list[Table], include_dax: bool) -> str:
             desc = m.description or "—"
             lines.append(f"| `{m.name}` | `{table_name}` | {fmt} | {desc} |")
         lines.append("")
-
         if include_dax:
             for _, m in folders[folder]:
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
@@ -419,9 +412,8 @@ def _relationships_section(model: SemanticModel) -> str:
             "|---|---|---|---|---|",
         ]
         for r in active:
-            card = r.cardinality or "—"
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {card} |"
+                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '—'} |"
             )
         lines.append("")
 
@@ -442,29 +434,16 @@ def _relationships_section(model: SemanticModel) -> str:
 
 
 def _build_param_usage_map(model: SemanticModel) -> dict[str, list[str]]:
-    """
-    Returns a dict mapping parameter name -> list of expression names that
-    directly reference it. Only catches structural references the parser
-    already extracted into named fields (server, database, url, file_name, etc.).
-    More complex patterns — conditional logic, Record.Field() calls, dynamic
-    concatenation — are not detectable statically.
-    """
     usage: dict[str, list[str]] = {p.name: [] for p in model.m_parameters}
     param_names = set(usage.keys())
-
     for expr in model.source_expressions:
-        # Check every string field on the expression for [param:Name] markers
-        for field_val in (
-            expr.server, expr.database, expr.url,
-            expr.file_name, expr.sharepoint_url, expr.dsn,
-        ):
+        for field_val in (expr.server, expr.database, expr.url, expr.file_name, expr.sharepoint_url, expr.dsn):
             if not field_val:
                 continue
             for pname in param_names:
                 if f"[param:{pname}]" in field_val:
                     if expr.name not in usage[pname]:
                         usage[pname].append(expr.name)
-
     return usage
 
 
@@ -475,21 +454,16 @@ def _security_roles_section(model: SemanticModel) -> str:
         lines += ["*No security roles defined.*", "", "---", ""]
         return "\n".join(lines)
 
-    lines += [
-        "| Role | Table | Filter | Dynamic |",
-        "|---|---|---|---|",
-    ]
+    lines += ["| Role | Table | Filter | Dynamic |", "|---|---|---|---|"]
     for role in model.security_roles:
         if not role.table_filters:
-            # Full access role — one row, no filter
             dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
             lines.append(f"| `{role.name}` | — | — | {dynamic_label} |")
         else:
             for i, tf in enumerate(role.table_filters):
-                role_cell   = f"`{role.name}`" if i == 0 else ""
-                dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
-                dyn_cell    = dynamic_label if i == 0 else ""
-                lines.append(f"| {role_cell} | `{tf.table}` | `{tf.dax_filter}` | {dyn_cell} |")
+                role_cell     = f"`{role.name}`" if i == 0 else ""
+                dynamic_label = (f"Yes ({role.dynamic_function})" if role.is_dynamic else "No") if i == 0 else ""
+                lines.append(f"| {role_cell} | `{tf.table}` | `{tf.dax_filter}` | {dynamic_label} |")
 
     lines += ["", "---", ""]
     return "\n".join(lines)
@@ -503,10 +477,9 @@ def _m_parameters_section(model: SemanticModel) -> str:
         return "\n".join(lines)
 
     usage_map = _build_param_usage_map(model)
-
     lines += ["| Parameter | Type | Value | Used By |", "|---|---|---|---|"]
     for p in model.m_parameters:
-        used_by = usage_map.get(p.name, [])
+        used_by   = usage_map.get(p.name, [])
         used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "—"
         lines.append(f"| `{p.name}` | {p.param_type} | `{p.value}` | {used_cell} |")
 
@@ -553,7 +526,7 @@ def _statistics_section(
     all_meas  = [m for t in model.tables for m in t.measures]
     calc_cols = [c for t in model.tables for c in t.columns if c.is_calculated]
 
-    def names(lst: list) -> str:
+    def names(lst):
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "—"
 
     lines = [
@@ -578,10 +551,6 @@ def _statistics_section(
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # HTML renderer
 # ---------------------------------------------------------------------------
 
@@ -600,8 +569,7 @@ h2 { font-size: 17px; font-weight: 700; color: #1e2330; margin: 36px 0 14px;
      padding-bottom: 6px; border-bottom: 2px solid #e2e6f0; }
 h3 { font-size: 14px; font-weight: 600; color: #2e3548; margin: 20px 0 8px; }
 h4 { font-size: 13px; font-weight: 600; color: #4a5068; margin: 14px 0 6px; }
-table { width: 100%; border-collapse: collapse; margin-bottom: 16px;
-        font-size: 13px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
 th { background: #eef0f7; color: #3d4464; font-weight: 600;
      padding: 8px 12px; text-align: left; border: 1px solid #dde1ee; }
 td { padding: 7px 12px; border: 1px solid #e8eaf2; vertical-align: top; }
@@ -615,10 +583,6 @@ pre { background: #1e2330; color: #c8d0e8;
       overflow-x: auto; margin: 8px 0 14px; white-space: pre-wrap; }
 pre code { background: none; color: inherit; padding: 0; }
 .overview-table td:first-child { font-weight: 600; width: 180px; color: #3d4464; }
-.badge { display: inline-block; font-size: 11px; font-weight: 600;
-         padding: 2px 8px; border-radius: 3px; }
-.badge-warn { background: #fff3cd; color: #856404; }
-.badge-info { background: #dbeafe; color: #1d4ed8; }
 .section-note { font-size: 12px; color: #7b8499; margin-bottom: 10px;
                 padding: 8px 12px; background: #f0f2fa;
                 border-left: 3px solid #c5cae0; border-radius: 0 4px 4px 0; }
@@ -641,10 +605,7 @@ def _esc(text: str) -> str:
 def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") -> str:
     cls = f' class="{css_class}"' if css_class else ""
     th_cells = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body_rows = ""
-    for row in rows:
-        td_cells = "".join(f"<td>{cell}</td>" for cell in row)
-        body_rows += f"<tr>{td_cells}</tr>"
+    body_rows = "".join(f"<tr>{''.join(f'<td>{cell}</td>' for cell in row)}</tr>" for row in rows)
     return f"<table{cls}><thead><tr>{th_cells}</tr></thead><tbody>{body_rows}</tbody></table>"
 
 
@@ -661,10 +622,6 @@ def generate_html(
     resolved: dict[str, ResolvedSource],
     config: dict,
 ) -> str:
-    """
-    Generate a self-contained HTML documentation file for a Power BI report.
-    All CSS is inline — no external dependencies.
-    """
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
     today       = date.today().strftime("%d %B %Y")
@@ -674,20 +631,18 @@ def generate_html(
     support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging = [t for t in model.tables if not t.is_loaded]
 
-    body = []
-    body.append(f'<div class="container">')
-    body.append(f'<h1>{_esc(report_name)}</h1>')
-    body.append(f'<div class="subtitle">Generated by tmdl-lens &middot; {today}</div>')
+    body = [f'<div class="container">',
+            f'<h1>{_esc(report_name)}</h1>',
+            f'<div class="subtitle">Generated by tmdl-lens &middot; {today}</div>']
 
     # Overview
     body.append('<h2>Overview</h2>')
-    overview_rows = [
+    body.append(_html_table(["Property", "Value"], [
         ["Owner",            _esc(config.get("owner", "-") or "-")],
         ["Team",             _esc(config.get("team", "-") or "-")],
         ["Refresh Schedule", _esc(config.get("refresh_schedule", "-") or "-")],
         ["Last Generated",   today],
-    ]
-    body.append(_html_table(["Property", "Value"], overview_rows, "overview-table"))
+    ], "overview-table"))
 
     # 1. Data Sources
     body.append('<h2>1. Data Sources</h2>')
@@ -697,21 +652,21 @@ def generate_html(
         for t in loaded:
             rs = get_table_source(t, resolved)
             src_type = _source_type_label(rs.source_type) if rs else "-"
-            detail   = (rs.manual_label or _source_detail(rs)) if rs else "-"
-            rows.append([_code(t.name), _esc(src_type), _esc(detail)])
+            label    = _source_label(rs) if rs else "-"
+            rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
     if support:
         body.append('<h3>Support Tables</h3>')
-        rows = [[_code(t.name), _esc(_table_type_label(t.table_type))] for t in support]
-        body.append(_html_table(["Table", "Type"], rows))
+        body.append(_html_table(["Table", "Type"],
+            [[_code(t.name), _esc(_table_type_label(t.table_type))] for t in support]))
     body.append('<h3>Not Loaded</h3>')
     if staging:
         rows = []
         for t in staging:
             rs = get_table_source(t, resolved)
             src_type = _source_type_label(rs.source_type) if rs else "-"
-            detail   = (rs.manual_label or _source_detail(rs)) if rs else "-"
-            rows.append([_code(t.name), _esc(src_type), _esc(detail)])
+            label    = _source_label(rs) if rs else "-"
+            rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
     else:
         body.append('<p class="empty">None.</p>')
@@ -724,8 +679,8 @@ def generate_html(
         rs = get_table_source(t, resolved)
         if rs:
             body.append(f'<p><strong>Source:</strong> {_esc(_source_type_label(rs.source_type))}</p>')
-            if rs.entity:
-                body.append(f'<p><strong>Entity:</strong> {_code(rs.entity)}</p>')
+            if rs.label and rs.label != _source_type_label(rs.source_type):
+                body.append(f'<p><strong>Detail:</strong> {_esc(rs.label)}</p>')
         elif t.table_type == "calculated":
             body.append('<p><strong>Source:</strong> Calculated (DAX)</p>')
             if include_dax and t.dax_partition:
@@ -733,14 +688,13 @@ def generate_html(
         visible_cols = [c for c in t.columns if not c.is_hidden and not c.is_calculated]
         if visible_cols:
             body.append('<h4>Columns</h4>')
-            rows = [[_code(c.name), _esc(_dtype(c.data_type))] for c in visible_cols]
-            body.append(_html_table(["Column", "Type"], rows))
+            body.append(_html_table(["Column", "Type"],
+                [[_code(c.name), _esc(_dtype(c.data_type))] for c in visible_cols]))
         if t.calculation_items:
             body.append('<h4>Calculation Items</h4>')
-            rows = []
-            for item in t.calculation_items:
-                fmt = _code(item.format_string_expression) if item.format_string_expression else "-"
-                rows.append([_code(item.name), str(item.ordinal), fmt])
+            rows = [[_code(i.name), str(i.ordinal),
+                     _code(i.format_string_expression) if i.format_string_expression else "-"]
+                    for i in t.calculation_items]
             body.append(_html_table(["Item", "Ordinal", "Format String"], rows))
             if include_dax:
                 for item in t.calculation_items:
@@ -748,11 +702,10 @@ def generate_html(
                     body.append(_pre(item.dax_expression))
         if t.measures:
             body.append('<h4>Measures</h4>')
-            rows = []
-            for m in t.measures:
-                fmt  = _code(m.format_string) if m.format_string else "-"
-                desc = _esc(m.description) if m.description else "-"
-                rows.append([_code(m.name), fmt, desc])
+            rows = [[_code(m.name),
+                     _code(m.format_string) if m.format_string else "-",
+                     _esc(m.description) if m.description else "-"]
+                    for m in t.measures]
             body.append(_html_table(["Measure", "Format", "Description"], rows))
             if include_dax:
                 for m in t.measures:
@@ -770,11 +723,10 @@ def generate_html(
             folders.setdefault(m.display_folder or "General", []).append((table_name, m))
         for folder in sorted(folders.keys()):
             body.append(f'<h3>{_esc(folder)}</h3>')
-            rows = []
-            for table_name, m in folders[folder]:
-                fmt  = _code(m.format_string) if m.format_string else "-"
-                desc = _esc(m.description) if m.description else "-"
-                rows.append([_code(m.name), _code(table_name), fmt, desc])
+            rows = [[_code(m.name), _code(tn),
+                     _code(m.format_string) if m.format_string else "-",
+                     _esc(m.description) if m.description else "-"]
+                    for tn, m in folders[folder]]
             body.append(_html_table(["Measure", "Table", "Format", "Description"], rows))
             if include_dax:
                 for _, m in folders[folder]:
@@ -789,24 +741,18 @@ def generate_html(
         active   = [r for r in model.relationships if r.is_active]
         inactive = [r for r in model.relationships if not r.is_active]
         if active:
-            rows = [
-                [_code(r.from_table), _code(r.from_column),
-                 _code(r.to_table),   _code(r.to_column), _esc(r.cardinality or "-")]
-                for r in active
-            ]
             body.append(_html_table(
-                ["From Table", "From Column", "To Table", "To Column", "Cardinality"], rows
-            ))
+                ["From Table", "From Column", "To Table", "To Column", "Cardinality"],
+                [[_code(r.from_table), _code(r.from_column),
+                  _code(r.to_table),   _code(r.to_column), _esc(r.cardinality or "-")]
+                 for r in active]))
         if inactive:
             body.append('<h3>Inactive Relationships</h3>')
-            rows = [
-                [_code(r.from_table), _code(r.from_column),
-                 _code(r.to_table),   _code(r.to_column)]
-                for r in inactive
-            ]
             body.append(_html_table(
-                ["From Table", "From Column", "To Table", "To Column"], rows
-            ))
+                ["From Table", "From Column", "To Table", "To Column"],
+                [[_code(r.from_table), _code(r.from_column),
+                  _code(r.to_table),   _code(r.to_column)]
+                 for r in inactive]))
 
     # 5. Security Roles
     body.append('<h2>5. Security Roles</h2>')
@@ -831,11 +777,9 @@ def generate_html(
         body.append('<p class="empty">No M parameters defined.</p>')
     else:
         usage_map = _build_param_usage_map(model)
-        rows = []
-        for p in model.m_parameters:
-            used_by  = usage_map.get(p.name, [])
-            used_cell = ", ".join(_code(e) for e in used_by) if used_by else "-"
-            rows.append([_code(p.name), _esc(p.param_type), _code(p.value), used_cell])
+        rows = [[_code(p.name), _esc(p.param_type), _code(p.value),
+                 ", ".join(_code(e) for e in usage_map.get(p.name, [])) or "-"]
+                for p in model.m_parameters]
         body.append(_html_table(["Parameter", "Type", "Value", "Used By"], rows))
         body.append('<p class="section-note">Only direct parameter references in connector calls are shown.</p>')
 
@@ -844,35 +788,33 @@ def generate_html(
     if unresolved:
         body.append('<h2>&#9888; Unresolved Sources</h2>')
         body.append('<p>The following sources could not be resolved statically.</p>')
-        rows = [[_code(rs.expression_name), _esc(rs.unresolved_reason)] for rs in unresolved]
-        body.append(_html_table(["Expression", "Reason"], rows))
+        body.append(_html_table(["Expression", "Reason"],
+            [[_code(rs.expression_name), _esc(rs.unresolved_reason)] for rs in unresolved]))
 
     # 7. Statistics
     body.append('<h2>7. Model Statistics</h2>')
-    calc     = [t for t in support if t.table_type == "calculated"]
-    fp       = [t for t in support if t.table_type == "field_parameter"]
-    mo       = [t for t in support if t.table_type == "measures_only"]
-    cg       = [t for t in support if t.table_type == "calc_group"]
-    all_meas = [m for t in model.tables for m in t.measures]
+    calc      = [t for t in support if t.table_type == "calculated"]
+    fp        = [t for t in support if t.table_type == "field_parameter"]
+    mo        = [t for t in support if t.table_type == "measures_only"]
+    cg        = [t for t in support if t.table_type == "calc_group"]
+    all_meas  = [m for t in model.tables for m in t.measures]
     calc_cols = [c for t in model.tables for c in t.columns if c.is_calculated]
     def _names(lst): return ", ".join(_code(t.name) for t in lst) if lst else "-"
-    stat_rows = [
-        ["Loaded Tables",       str(len(loaded)),          _names(loaded)],
-        ["Calculated Tables",   str(len(calc)),            _names(calc)],
-        ["Field Parameters",    str(len(fp)),              _names(fp)],
-        ["Measures-Only Tables",str(len(mo)),              _names(mo)],
-        ["Calculation Groups",  str(len(cg)),              _names(cg)],
-        ["Not Loaded",          str(len(staging)),         _names(staging)],
-        ["Relationships",       str(len(model.relationships)), "-"],
-        ["Measures",            str(len(all_meas)),        "-"],
-        ["Calculated Columns",  str(len(calc_cols)),       "-"],
-    ]
-    body.append(_html_table(["Category", "Count", "Items"], stat_rows))
+    body.append(_html_table(["Category", "Count", "Items"], [
+        ["Loaded Tables",        str(len(loaded)),               _names(loaded)],
+        ["Calculated Tables",    str(len(calc)),                 _names(calc)],
+        ["Field Parameters",     str(len(fp)),                   _names(fp)],
+        ["Measures-Only Tables", str(len(mo)),                   _names(mo)],
+        ["Calculation Groups",   str(len(cg)),                   _names(cg)],
+        ["Not Loaded",           str(len(staging)),              _names(staging)],
+        ["Relationships",        str(len(model.relationships)),  "-"],
+        ["Measures",             str(len(all_meas)),             "-"],
+        ["Calculated Columns",   str(len(calc_cols)),            "-"],
+    ]))
 
     body.append(f'<div class="footer">Generated by tmdl-lens &middot; {today}</div>')
     body.append('</div>')
 
-    html_body = "\n".join(body)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -882,7 +824,7 @@ def generate_html(
 <style>{_HTML_CSS}</style>
 </head>
 <body>
-{html_body}
+{chr(10).join(body)}
 </body>
 </html>
 """
@@ -893,66 +835,31 @@ def generate_readme(
     resolved: dict[str, ResolvedSource],
     config: dict,
 ) -> str:
-    """
-    Generate a README.md string for a Power BI report.
-
-    Args:
-        model:    parsed SemanticModel from tmdl_parser
-        resolved: resolved sources dict from source_resolver
-        config:   dict with keys:
-                    report_name       str   display name for the report
-                    owner             str   report owner name
-                    team              str   team name
-                    refresh_schedule  str   human-readable schedule
-                    include_dax       bool  whether to include DAX in output
-
-    Returns:
-        Markdown string ready to write to README.md
-    """
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
 
-    # Categorise tables
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging  = [t for t in model.tables if not t.is_loaded]
 
-    sections = []
+    sections = [
+        f"# {report_name}\n",
+        _overview_section(config),
+        _data_sources_section(loaded, staging, support, resolved, model),
+        _table_details_section(loaded, support, resolved, include_dax),
+        _measures_section(model.tables, include_dax),
+        _relationships_section(model),
+        _security_roles_section(model),
+        _m_parameters_section(model),
+    ]
 
-    # Header
-    sections.append(f"# {report_name}\n")
-
-    # Overview
-    sections.append(_overview_section(config))
-
-    # 1. Data Sources
-    sections.append(_data_sources_section(loaded, staging, support, resolved, model))
-
-    # 2. Table Details
-    sections.append(_table_details_section(loaded, support, resolved, include_dax))
-
-    # 3. Measures — always present
-    sections.append(_measures_section(model.tables, include_dax))
-
-    # 4. Relationships — always present
-    sections.append(_relationships_section(model))
-
-    # 5. Security Roles — always present
-    sections.append(_security_roles_section(model))
-
-    # 6. M Parameters — always present
-    sections.append(_m_parameters_section(model))
-
-    # Unresolved sources warning (only if needed)
     unresolved = _unresolved_section(resolved)
     if unresolved:
         sections.append(unresolved)
 
-    # 7. Statistics
     sections.append(_statistics_section(model, loaded, support, staging))
 
-    # Footer
     today = date.today().strftime("%d %B %Y")
     sections.append(f"*Generated by tmdl-lens · {today}*\n")
 

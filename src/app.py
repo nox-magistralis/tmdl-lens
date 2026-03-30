@@ -1136,7 +1136,9 @@ class App(ctk.CTk):
             measure_count = sum(len(t.measures) for t in model.tables)
             self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
 
-            resolved    = resolve_sources(model.source_expressions, model.m_parameters)
+            resolved    = resolve_sources(
+                model.source_expressions, model.m_parameters, tables=model.tables
+            )
             report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
             gen_config  = {
                 "report_name":      pbip_name,
@@ -1229,7 +1231,9 @@ class App(ctk.CTk):
                 measure_count = sum(len(t.measures) for t in model.tables)
                 self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
 
-                resolved = resolve_sources(model.source_expressions, model.m_parameters)
+                resolved = resolve_sources(
+                    model.source_expressions, model.m_parameters, tables=model.tables
+                )
                 report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
                 gen_config = {
                     "report_name":      pbip_name,
