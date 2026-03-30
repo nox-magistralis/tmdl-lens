@@ -20,6 +20,7 @@ DEFAULTS = {
     "output_folder":    "",
     "overwrite_readme": False,
     "include_dax":      True,
+    "output_format":    "html",
     "skip_unchanged":   True,
     "watch_enabled":    True,
     "watch_debounce":   10,
