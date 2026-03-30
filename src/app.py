@@ -21,7 +21,7 @@ from src.config import load as load_config, save as save_config
 import src.workspace_config as ws_cfg
 from src.tmdl_parser import parse_semantic_model
 from src.source_resolver import resolve_sources
-from src.readme_generator import generate_readme
+from src.readme_generator import generate_readme, generate_html
 
 try:
     from src.watcher import TmdlWatcher, WATCHER_AVAILABLE
@@ -317,11 +317,46 @@ class App(ctk.CTk):
         # ── Options ───────────────────────────────────────────────────────────
         self._section_header(frame, "Options", required=False)
 
+        # Output format selector
+        format_row = ctk.CTkFrame(
+            frame,
+            fg_color=COLORS["surface"],
+            border_width=1, border_color=COLORS["border"],
+            corner_radius=6,
+        )
+        format_row.pack(fill="x", padx=22)
+        info = ctk.CTkFrame(format_row, fg_color="transparent")
+        info.pack(side="left", fill="both", expand=True, padx=12, pady=10)
+        ctk.CTkLabel(
+            info, text="Output format",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_1"], anchor="w",
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            info, text="HTML opens in any browser - MD produces README.md for GitHub",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_3"], anchor="w",
+        ).pack(anchor="w")
+        self._format_var = tk.StringVar(value="HTML")
+        ctk.CTkOptionMenu(
+            format_row,
+            values=["HTML", "MD"],
+            variable=self._format_var,
+            width=80, height=28,
+            fg_color=COLORS["bg"],
+            button_color=COLORS["border"],
+            button_hover_color=COLORS["border_hi"],
+            text_color=COLORS["text_1"],
+            font=ctk.CTkFont(size=12),
+        ).pack(side="right", padx=14)
+
+        ctk.CTkFrame(frame, height=6, fg_color="transparent").pack(fill="x")
+
         self._overwrite_var = tk.BooleanVar(value=False)
         self._toggle_row(
             frame,
-            "Overwrite existing READMEs",
-            "Re-generate even if README.md already exists",
+            "Overwrite existing files",
+            "Re-generate even if output file already exists",
             self._overwrite_var,
         )
         ctk.CTkFrame(frame, height=6, fg_color="transparent").pack(fill="x")
@@ -878,6 +913,7 @@ class App(ctk.CTk):
         self._reports_var.set(c.get("reports_folder", ""))
         self._output_var.set(c.get("output_folder", ""))
         self._overwrite_var.set(c.get("overwrite_readme", False))
+        self._format_var.set("MD" if c.get("output_format", "html") == "md" else "HTML")
         self._dax_var.set(c.get("include_dax", True))
         self._skip_var.set(False)  # disabled toggle, value not loaded from config
         self._watch_var.set(False)  # always off on startup — user enables manually
@@ -897,6 +933,7 @@ class App(ctk.CTk):
             "reports_folder":   self._reports_var.get().strip(),
             "output_folder":    self._output_var.get().strip(),
             "overwrite_readme": self._overwrite_var.get(),
+            "output_format":    self._format_var.get().lower(),
             "include_dax":      self._dax_var.get(),
             "skip_unchanged":   self._skip_var.get(),
             "watch_enabled":    self._watch_var.get(),
@@ -1058,7 +1095,7 @@ class App(ctk.CTk):
         if self._watch_var.get():
             output_folder = self._output_var.get().strip() or folder
             has_readmes = any(
-                fname == "README.md"
+                fname == "README.md" or fname.endswith(".html")
                 for _, _, files in os.walk(output_folder)
                 for fname in files
             )
@@ -1081,10 +1118,12 @@ class App(ctk.CTk):
 
     def _run_single(self, pbip_path: str, config: dict):
         """Run the pipeline for one .pbip file (called from watcher thread)."""
-        pbip_dir   = os.path.dirname(pbip_path)
-        pbip_name  = os.path.splitext(os.path.basename(pbip_path))[0]
-        model_dir  = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
+        pbip_dir    = os.path.dirname(pbip_path)
+        pbip_name   = os.path.splitext(os.path.basename(pbip_path))[0]
+        model_dir   = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
         include_dax = config.get("include_dax", True)
+        fmt         = config.get("output_format", "html")
+        custom_out  = config.get("output_folder", "").strip()
 
         if not os.path.isdir(model_dir):
             self.log(f"{pbip_name} - no SemanticModel folder", "warn")
@@ -1106,17 +1145,18 @@ class App(ctk.CTk):
                 "refresh_schedule": report_meta["refresh_schedule"],
                 "include_dax":      include_dax,
             }
-            readme = generate_readme(model, resolved, gen_config)
 
-            custom_out = config.get("output_folder", "").strip()
-            out_path = os.path.join(custom_out, pbip_name, "README.md") \
-                if custom_out \
-                else os.path.join(pbip_dir, pbip_name, "README.md")
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            content      = generate_html(model, resolved, gen_config) if fmt == "html" \
+                else generate_readme(model, resolved, gen_config)
+            out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
+            out_path     = os.path.join(custom_out, out_filename) if custom_out \
+                else os.path.join(pbip_dir, out_filename)
+
+            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
             with open(out_path, "w", encoding="utf-8") as f:
-                f.write(readme)
+                f.write(content)
 
-            self.log("  README.md written", "ok")
+            self.log(f"  {out_filename} written", "ok")
             now = datetime.now().strftime("%H:%M:%S")
             self.after(0, lambda: self._last_run_label.configure(
                 text=f"last run · {now}"
@@ -1126,9 +1166,10 @@ class App(ctk.CTk):
 
     def _run_pipeline(self, config: dict):
         reports_folder = config["reports_folder"]
-        output_folder  = config.get("output_folder", "").strip() or reports_folder
         include_dax    = config.get("include_dax", True)
         overwrite      = config.get("overwrite_readme", False)
+        fmt            = config.get("output_format", "html")
+        custom_out     = config.get("output_folder", "").strip()
 
         self.log(f"scanning {reports_folder}", "info")
 
@@ -1144,25 +1185,38 @@ class App(ctk.CTk):
             self._run_done()
             return
 
-        self.log(f"found {len(pbip_files)} report(s)", "ok")
+        # Detect folders with multiple .pbip files — warn and skip them
+        from collections import defaultdict
+        folder_map: dict[str, list[str]] = defaultdict(list)
+        for p in pbip_files:
+            folder_map[os.path.dirname(p)].append(p)
+
+        skipped_dirs = {d for d, files in folder_map.items() if len(files) > 1}
+        for d in sorted(skipped_dirs):
+            names = ", ".join(os.path.splitext(os.path.basename(p))[0] for p in folder_map[d])
+            self.log(f"skipped: {os.path.basename(d)} contains multiple .pbip files ({names})", "warn")
+            self.log(f"  place each report in its own folder to generate documentation", "warn")
+
+        runnable = [p for p in pbip_files if os.path.dirname(p) not in skipped_dirs]
+        self.log(f"found {len(runnable)} report(s)", "ok")
         success = 0
         errors  = 0
 
-        for pbip_path in pbip_files:
-            pbip_dir   = os.path.dirname(pbip_path)
-            pbip_name  = os.path.splitext(os.path.basename(pbip_path))[0]
-            model_dir  = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
+        for pbip_path in runnable:
+            pbip_dir  = os.path.dirname(pbip_path)
+            pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
+            model_dir = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
 
             if not os.path.isdir(model_dir):
                 self.log(f"{pbip_name} - no SemanticModel folder", "warn")
                 continue
 
-            custom_out = config.get("output_folder", "").strip()
-            out_path_check = os.path.join(custom_out, pbip_name, "README.md") \
-                if custom_out \
-                else os.path.join(pbip_dir, pbip_name, "README.md")
-            if os.path.exists(out_path_check) and not overwrite:
-                self.log(f"{pbip_name} - skipped (README exists)", "msg")
+            out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
+            out_path = os.path.join(custom_out, out_filename) if custom_out \
+                else os.path.join(pbip_dir, out_filename)
+
+            if os.path.exists(out_path) and not overwrite:
+                self.log(f"{pbip_name} - skipped (file exists)", "msg")
                 continue
 
             self.log(f"→ {pbip_name}", "msg")
@@ -1176,8 +1230,6 @@ class App(ctk.CTk):
                 self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
 
                 resolved = resolve_sources(model.source_expressions, model.m_parameters)
-
-                # Merge workspace defaults with any per-report overrides
                 report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
                 gen_config = {
                     "report_name":      pbip_name,
@@ -1186,17 +1238,15 @@ class App(ctk.CTk):
                     "refresh_schedule": report_meta["refresh_schedule"],
                     "include_dax":      include_dax,
                 }
-                readme = generate_readme(model, resolved, gen_config)
 
-                custom_out = config.get("output_folder", "").strip()
-                out_path = os.path.join(custom_out, pbip_name, "README.md") \
-                    if custom_out \
-                    else os.path.join(pbip_dir, pbip_name, "README.md")
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                content = generate_html(model, resolved, gen_config) if fmt == "html" \
+                    else generate_readme(model, resolved, gen_config)
+
+                os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
                 with open(out_path, "w", encoding="utf-8") as f:
-                    f.write(readme)
+                    f.write(content)
 
-                self.log(f"  README.md written", "ok")
+                self.log(f"  {out_filename} written", "ok")
                 success += 1
 
             except Exception as e:
