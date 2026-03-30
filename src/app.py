@@ -90,17 +90,12 @@ class App(ctk.CTk):
         self._loading = False
         self._auto_save_config()
 
-        # Load workspace config and start watcher if we have a saved reports folder
+        # Load workspace config on startup — watcher is never auto-started
         saved_folder = self.config_data.get("reports_folder", "").strip()
         if saved_folder and os.path.isdir(saved_folder):
             self._load_workspace_config(saved_folder)
             self._scan_reports(saved_folder)
-            if self.config_data.get("watch_enabled", True):
-                self.after(500, lambda: self._start_watcher(saved_folder))
-            else:
-                self.after(0, self._set_watcher_idle)
-        else:
-            self.after(0, self._set_watcher_idle)
+        self.after(0, self._set_watcher_idle)
 
     # ── Window ────────────────────────────────────────────────────────────────
 
@@ -340,12 +335,13 @@ class App(ctk.CTk):
         )
         ctk.CTkFrame(frame, height=6, fg_color="transparent").pack(fill="x")
 
-        self._skip_var = tk.BooleanVar(value=True)
+        self._skip_var = tk.BooleanVar(value=False)
         self._toggle_row(
             frame,
             "Skip reports with no TMDL changes",
-            "Compare file hash - skip if unchanged since last run",
+            "Compare file hash - skip if unchanged since last run  (coming soon)",
             self._skip_var,
+            disabled=True,
         )
 
         self._divider(frame)
@@ -771,13 +767,13 @@ class App(ctk.CTk):
         label_row.pack(fill="x", padx=22, pady=(0, 4))
         ctk.CTkLabel(
             label_row, text=text,
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             text_color=COLORS["text_1"],
         ).pack(side="left")
         if sub:
             ctk.CTkLabel(
                 label_row, text=f"  ({sub})",
-                font=ctk.CTkFont(size=12),
+                font=ctk.CTkFont(size=11),
                 text_color=COLORS["text_2"],
             ).pack(side="left")
 
@@ -833,7 +829,7 @@ class App(ctk.CTk):
         ).pack(fill="x", padx=10, pady=6)
 
     def _toggle_row(self, parent, title: str, subtitle: str,
-                    var: tk.BooleanVar):
+                    var: tk.BooleanVar, disabled: bool = False):
         row = ctk.CTkFrame(
             parent,
             fg_color=COLORS["surface"],
@@ -847,15 +843,15 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             info, text=title,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_1"],
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_3"] if disabled else COLORS["text_1"],
             anchor="w",
         ).pack(anchor="w")
 
         ctk.CTkLabel(
             info, text=subtitle,
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_2"],
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_3"],
             anchor="w",
         ).pack(anchor="w")
 
@@ -867,6 +863,7 @@ class App(ctk.CTk):
             button_hover_color="#dddddd",
             progress_color=COLORS["accent"],
             fg_color=COLORS["border_hi"],
+            state="disabled" if disabled else "normal",
         ).pack(side="right", padx=14)
 
     def _divider(self, parent):
@@ -882,8 +879,8 @@ class App(ctk.CTk):
         self._output_var.set(c.get("output_folder", ""))
         self._overwrite_var.set(c.get("overwrite_readme", False))
         self._dax_var.set(c.get("include_dax", True))
-        self._skip_var.set(c.get("skip_unchanged", True))
-        self._watch_var.set(c.get("watch_enabled", True))
+        self._skip_var.set(False)  # disabled toggle, value not loaded from config
+        self._watch_var.set(False)  # always off on startup — user enables manually
         self._debounce_var.set(f"{c.get('watch_debounce', 10)} sec")
         self._schedule_var.set(c.get("schedule_enabled", False))
         self._sched_day_var.set(c.get("schedule_day", "Mon"))
@@ -1059,6 +1056,18 @@ class App(ctk.CTk):
             return
         folder = self._reports_var.get().strip()
         if self._watch_var.get():
+            output_folder = self._output_var.get().strip() or folder
+            has_readmes = any(
+                fname == "README.md"
+                for _, _, files in os.walk(output_folder)
+                for fname in files
+            )
+            if not has_readmes:
+                self.log("no README files found - run the generator first", "warn")
+                self._loading = True
+                self._watch_var.set(False)
+                self._loading = False
+                return
             self._start_watcher(folder)
         else:
             self._stop_watcher()
@@ -1075,9 +1084,7 @@ class App(ctk.CTk):
         pbip_dir   = os.path.dirname(pbip_path)
         pbip_name  = os.path.splitext(os.path.basename(pbip_path))[0]
         model_dir  = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
-        output_folder = config.get("output_folder", "").strip() or config["reports_folder"]
-        readme_path   = os.path.join(pbip_dir, "README.md")
-        include_dax    = config.get("include_dax", True)
+        include_dax = config.get("include_dax", True)
 
         if not os.path.isdir(model_dir):
             self.log(f"{pbip_name} - no SemanticModel folder", "warn")
@@ -1101,9 +1108,10 @@ class App(ctk.CTk):
             }
             readme = generate_readme(model, resolved, gen_config)
 
-            out_path = os.path.join(output_folder, pbip_name, "README.md") \
-                if output_folder != config["reports_folder"] \
-                else readme_path
+            custom_out = config.get("output_folder", "").strip()
+            out_path = os.path.join(custom_out, pbip_name, "README.md") \
+                if custom_out \
+                else os.path.join(pbip_dir, pbip_name, "README.md")
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(readme)
@@ -1144,13 +1152,16 @@ class App(ctk.CTk):
             pbip_dir   = os.path.dirname(pbip_path)
             pbip_name  = os.path.splitext(os.path.basename(pbip_path))[0]
             model_dir  = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
-            readme_path = os.path.join(pbip_dir, "README.md")
 
             if not os.path.isdir(model_dir):
                 self.log(f"{pbip_name} - no SemanticModel folder", "warn")
                 continue
 
-            if os.path.exists(readme_path) and not overwrite:
+            custom_out = config.get("output_folder", "").strip()
+            out_path_check = os.path.join(custom_out, pbip_name, "README.md") \
+                if custom_out \
+                else os.path.join(pbip_dir, pbip_name, "README.md")
+            if os.path.exists(out_path_check) and not overwrite:
                 self.log(f"{pbip_name} - skipped (README exists)", "msg")
                 continue
 
@@ -1177,10 +1188,10 @@ class App(ctk.CTk):
                 }
                 readme = generate_readme(model, resolved, gen_config)
 
-                out_path = os.path.join(output_folder, pbip_name, "README.md") \
-                    if output_folder != reports_folder \
-                    else readme_path
-
+                custom_out = config.get("output_folder", "").strip()
+                out_path = os.path.join(custom_out, pbip_name, "README.md") \
+                    if custom_out \
+                    else os.path.join(pbip_dir, pbip_name, "README.md")
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 with open(out_path, "w", encoding="utf-8") as f:
                     f.write(readme)
