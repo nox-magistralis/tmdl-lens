@@ -90,6 +90,7 @@ _TERMINAL_TYPES = {
     "sap_hana", "sap_bw",
     "oracle", "mysql", "postgresql", "teradata", "db2",
     # Special
+    "powerbi_dataset", "dataverse",
     "connector_unknown",
     "dynamic", "unresolved",
     "function_def", "scalar_helper",
@@ -137,6 +138,8 @@ _CONNECTOR_LABELS = {
     "unresolved":        "Unresolved",
     "function_def":      "Helper Function",
     "scalar_helper":     "Scalar Helper",
+    "powerbi_dataset":    "Power BI Dataset",
+    "dataverse":          "Dataverse",
     "connector_unknown": "Unknown Connector",
 }
 
@@ -219,6 +222,12 @@ def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
 
     if t in ("function_def", "scalar_helper"):
         return t.replace("_", " ").title()
+
+    if t == "powerbi_dataset":
+        return "Power BI Dataset"
+
+    if t == "dataverse":
+        return f"Dataverse -> {expr.url or '?'}"
 
     if t == "connector_unknown":
         fn = expr.connector_fn or "unknown"

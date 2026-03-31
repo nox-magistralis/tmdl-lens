@@ -236,6 +236,9 @@ _CONNECTOR_CHECKS = [
     ("PostgreSQL.Database(",        "postgresql"),
     ("Teradata.Database(",          "teradata"),
     ("DB2.Database(",               "db2"),
+    # Power BI / Power Platform datasets
+    ("PowerBI.Datasets(",          "powerbi_dataset"),
+    ("Dataverse.Feed(",             "dataverse"),
     # Inline / hardcoded
     ("Table.FromRows(",             "embedded"),
     ("#table(",                     "hardcoded"),
@@ -569,6 +572,11 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             if tbl:
                 expr.schema        = tbl.group(1)
                 expr.table_or_view = tbl.group(2)
+
+    elif source_type == "dataverse":
+        env = re.search(r'Dataverse\.Feed\s*\(\s*"([^"]+)"', clean)
+        if env:
+            expr.url = env.group(1)
 
     elif source_type == "odbc":
         dsn = re.search(r'Odbc\.DataSource\s*\(\s*"([^"]+)"', clean)
