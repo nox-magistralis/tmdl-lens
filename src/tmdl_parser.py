@@ -448,8 +448,32 @@ def _parse_calculation_items(content: str) -> list:
 # ---------------------------------------------------------------------------
 
 def _strip_m_comments(content: str) -> str:
-    """Remove /* ... */ block comments. Applied before any source classification."""
-    return re.sub(r"/\*[\s\S]*?\*/", "", content)
+    """Remove /* ... */ block comments and // line comments.
+    Preserves // inside quoted strings (e.g., "https://...").
+    """
+    # Remove block comments first
+    content = re.sub(r"/\*[\s\S]*?\*/", "", content)
+
+    # Remove line comments: // not inside double quotes
+    lines = content.split("\n")
+    result_lines = []
+    for line in lines:
+        in_string = False
+        new_line = []
+        i = 0
+        while i < len(line):
+            char = line[i]
+            if char == '"' and (i == 0 or line[i-1] != '\\'):
+                in_string = not in_string
+                new_line.append(char)
+                i += 1
+                continue
+            if not in_string and char == '/' and i + 1 < len(line) and line[i+1] == '/':
+                break
+            new_line.append(char)
+            i += 1
+        result_lines.append(''.join(new_line))
+    return "\n".join(result_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -482,16 +506,26 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
         return expr
 
     # 2. Table.Combine / Table.Append — these ARE the source, not transformations
-    #    Table.Combine({QueryA, QueryB, ...}) — extract referenced names
-    combine = re.search(r"\bTable\.(?:Combine|Append)\s*\(\s*\{([\s\S]*?)\}\s*\)", clean)
-    if combine:
-        expr.source_type = "table_combine"
-        # Extract #"Name" references first, then bare identifiers
-        refs = re.findall(r'#"([^"]+)"', combine.group(1))
-        if not refs:
-            refs = re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', combine.group(1))
-        expr.combine_sources = [r.strip() for r in refs if r.strip()]
-        return expr
+    #    Uses balanced brace matching to handle nested {} inside arguments
+    combine_match = re.search(r'\bTable\.(?:Combine|Append)\s*\(\s*\{', clean)
+    if combine_match:
+        start_pos = combine_match.end() - 1  # position of opening {
+        brace_count = 1
+        end_pos = start_pos + 1
+        while brace_count > 0 and end_pos < len(clean):
+            if clean[end_pos] == '{':
+                brace_count += 1
+            elif clean[end_pos] == '}':
+                brace_count -= 1
+            end_pos += 1
+        if brace_count == 0:
+            inner_content = clean[start_pos + 1:end_pos - 1]
+            expr.source_type = "table_combine"
+            refs = re.findall(r'#"([^"]+)"', inner_content)
+            if not refs:
+                refs = re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', inner_content)
+            expr.combine_sources = [r.strip() for r in refs if r.strip()]
+            return expr
 
     # 3. Known connector signatures — checked in priority order
     for fn_pattern, source_type in _CONNECTOR_CHECKS:
@@ -538,6 +572,8 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
             "Table", "List", "Record", "Json", "Xml", "Csv",
             "Excel", "File", "Text", "Date", "DateTime", "Binary",
             "Number", "Duration", "Time", "Splitter", "Combiner",
+            "Lines", "Type", "Function", "Uri", "Compression",
+            "Value", "Expression", "Metadata", "Error",
         ):
             expr.source_type = "derived_table"
             expr.derived_from = ref
