@@ -236,6 +236,13 @@ _CONNECTOR_CHECKS = [
     ("PostgreSQL.Database(",        "postgresql"),
     ("Teradata.Database(",          "teradata"),
     ("DB2.Database(",               "db2"),
+    # Microsoft / Dynamics
+    ("AzureDevOps.Contents(",       "azure_devops"),
+    ("Dynamics365.FinanceAndOperations(", "dynamics_fo"),
+    # SaaS / productivity
+    ("GoogleSheets.Contents(",      "google_sheets"),
+    ("QuickBooks.Contents(",        "quickbooks"),
+    ("GitHub.Contents(",            "github"),
     # Power BI / Power Platform datasets
     ("PowerBI.Datasets(",          "powerbi_dataset"),
     ("Dataverse.Feed(",             "dataverse"),
@@ -688,6 +695,26 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         region = re.search(r'SmartsheetGlobal\.Contents\s*\(\s*"([^"]+)"', clean)
         if region:
             expr.url = region.group(1)
+
+    elif source_type == "azure_devops":
+        match = re.search(r'AzureDevOps\.Contents\s*\(\s*"([^"]+)"', clean)
+        if match:
+            expr.url = match.group(1)
+
+    elif source_type == "dynamics_fo":
+        match = re.search(r'Dynamics365\.FinanceAndOperations\s*\(\s*"([^"]+)"', clean)
+        if match:
+            expr.url = match.group(1)
+
+    elif source_type in ("google_sheets", "quickbooks", "github"):
+        patterns = {
+            "google_sheets": r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"',
+            "quickbooks":    r'QuickBooks\.Contents\s*\(\s*"([^"]+)"',
+            "github":        r'GitHub\.Contents\s*\(\s*"([^"]+)"',
+        }
+        match = re.search(patterns[source_type], clean)
+        if match:
+            expr.url = match.group(1)
 
 
 # ---------------------------------------------------------------------------
