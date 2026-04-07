@@ -352,6 +352,8 @@ def _table_detail_block(
         if include_dax:
             lines += ["", "**Measure DAX**", ""]
             for m in table.measures:
+                if not m.dax_expression.strip():
+                    continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
 
     return "\n".join(lines)
@@ -397,6 +399,8 @@ def _measures_section(tables: list[Table], include_dax: bool) -> str:
         lines.append("")
         if include_dax:
             for _, m in folders[folder]:
+                if not m.dax_expression.strip():
+                    continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
 
     lines += ["---", ""]
@@ -488,7 +492,8 @@ def _m_parameters_section(model: SemanticModel) -> str:
     for p in model.m_parameters:
         used_by   = usage_map.get(p.name, [])
         used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "—"
-        lines.append(f"| `{p.name}` | {p.param_type} | `{p.value}` | {used_cell} |")
+        val_cell  = f"`{p.value}`" if p.value.strip() else "—"
+        lines.append(f"| `{p.name}` | {p.param_type} | {val_cell} | {used_cell} |")
 
     lines += [
         "",

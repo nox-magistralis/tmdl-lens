@@ -1151,8 +1151,10 @@ class App(ctk.CTk):
             content      = generate_html(model, resolved, gen_config) if fmt == "html" \
                 else generate_readme(model, resolved, gen_config)
             out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
-            out_path     = os.path.join(custom_out, out_filename) if custom_out \
-                else os.path.join(pbip_dir, out_filename)
+            if custom_out:
+                out_path = os.path.join(custom_out, pbip_name, out_filename)
+            else:
+                out_path = os.path.join(pbip_dir, out_filename)
 
             os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
             with open(out_path, "w", encoding="utf-8") as f:
@@ -1214,8 +1216,11 @@ class App(ctk.CTk):
                 continue
 
             out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
-            out_path = os.path.join(custom_out, out_filename) if custom_out \
-                else os.path.join(pbip_dir, out_filename)
+            if custom_out:
+                # Each report gets its own subfolder so multiple reports never collide
+                out_path = os.path.join(custom_out, pbip_name, out_filename)
+            else:
+                out_path = os.path.join(pbip_dir, out_filename)
 
             if os.path.exists(out_path) and not overwrite:
                 self.log(f"{pbip_name} - skipped (file exists)", "msg")
