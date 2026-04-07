@@ -2,9 +2,9 @@
 
 Automated documentation generator for Power BI projects.
 
-Reads TMDL files from a folder of `.pbip` reports and generates a structured `README.md` for each one — covering data sources, tables, measures, relationships, M parameters, security roles, and calculation groups.
+Reads TMDL files from a folder of `.pbip` reports and generates structured HTML or Markdown documentation for each one — covering data sources, tables, measures, relationships, M parameters, security roles, and calculation groups.
 
-Runs as a standalone Windows desktop app with a live file watcher that regenerates documentation automatically on every save.
+Runs as a standalone Windows desktop app. Output can be HTML (opens in any browser) or Markdown (README.md for GitHub). A live file watcher regenerates documentation automatically on every save.
 
 ---
 
@@ -15,7 +15,7 @@ See a [real example output](sample/README.md) generated from the included sample
 Each generated README includes:
 
 - **Data Sources** - connector type and resolved source detail for every query, covering 30+ connectors including SQL, Dataflows, SharePoint, Excel, OData, Azure storage, Fabric, Databricks, Snowflake, Salesforce, and more. Unknown connectors are auto-detected and flagged for manual labelling.
-- **Table Details** - table type, row count hint, and column list
+- **Table Details** - table type, source detail, and column list
 - **Measures** - full DAX (optional), display folder, and format string
 - **Relationships** - cardinality, cross-filter direction, and active/inactive state
 - **M Parameters** - current value and which source expressions reference each parameter
