@@ -619,6 +619,30 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         if dsn:
             expr.dsn = dsn.group(1)
 
+    elif source_type in ("oracle", "mysql", "postgresql", "db2", "sap_hana", "snowflake"):
+        patterns = {
+            "oracle":     r'Oracle\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "mysql":      r'MySql\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "postgresql": r'PostgreSQL\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "db2":        r'DB2\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "sap_hana":   r'SapHana\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "snowflake":  r'Snowflake\.Databases\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+        }
+        match = re.search(patterns[source_type], clean)
+        if match:
+            expr.server   = match.group(1)
+            expr.database = match.group(2)
+
+    elif source_type == "teradata":
+        match = re.search(r'Teradata\.Database\s*\(\s*"([^"]+)"', clean)
+        if match:
+            expr.server = match.group(1)
+
+    elif source_type == "databricks":
+        match = re.search(r'Databricks\.(?:Catalogs|Contents)\s*\(\s*"([^"]+)"', clean)
+        if match:
+            expr.server = match.group(1)
+
     elif source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint"):
         # Extract SharePoint URL first — applies to all three types
         sp = re.search(r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"', clean)
