@@ -620,16 +620,24 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             expr.dsn = dsn.group(1)
 
     elif source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint"):
+        # Extract SharePoint URL first — applies to all three types
         sp = re.search(r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"', clean)
         if sp:
             expr.sharepoint_url = sp.group(1)
-        fn = re.search(r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"', clean)
-        if fn:
-            expr.file_name   = fn.group(1)
+        # If Excel.Workbook is also present, this is a SharePoint-hosted Excel file
+        if "Excel.Workbook" in clean:
             expr.source_type = "excel_sharepoint"
-        lst = re.search(r'Name\s*=\s*"([^"]+)"', clean)
-        if lst and not fn:
-            expr.table_or_view = lst.group(1)
+            fn = re.search(r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"', clean)
+            if fn:
+                expr.file_name = fn.group(1)
+            sheet = re.search(r'Item\s*=\s*"([^"]+)"', clean)
+            if sheet:
+                expr.sheet_name = sheet.group(1)
+        else:
+            # Regular SharePoint list or file browse — extract list/item name
+            lst = re.search(r'Name\s*=\s*"([^"]+)"', clean)
+            if lst:
+                expr.table_or_view = lst.group(1)
 
     elif source_type == "excel_local":
         fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
@@ -638,11 +646,6 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         sheet = re.search(r'Item\s*=\s*"([^"]+)"', clean)
         if sheet:
             expr.sheet_name = sheet.group(1)
-        if "SharePoint.Files" in clean:
-            expr.source_type = "excel_sharepoint"
-            sp = re.search(r'SharePoint\.Files\s*\(\s*"([^"]+)"', clean)
-            if sp:
-                expr.sharepoint_url = sp.group(1)
 
     elif source_type == "csv_local":
         fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)

@@ -2,6 +2,10 @@
 config.json
 src/config.json
 
+# Throwaway debug/test scripts — never commit these
+debug*.py
+test_*.py
+
 # PyInstaller build output
 build/
 dist/
