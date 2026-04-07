@@ -282,6 +282,23 @@ def _table_detail_block(
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
+        if rs.source_type in ("oracle", "mysql", "postgresql", "db2", "sap_hana", "snowflake"):
+            if rs.server:
+                lines.append(f"**Server:** `{rs.server}`  ")
+            if rs.database:
+                lines.append(f"**Database:** `{rs.database}`  ")
+        if rs.source_type == "teradata":
+            if rs.server:
+                lines.append(f"**Server:** `{rs.server}`  ")
+        if rs.source_type == "databricks":
+            if rs.server:
+                lines.append(f"**Host:** `{rs.server}`  ")
+        if rs.source_type == "dataverse":
+            if rs.url:
+                lines.append(f"**Environment URL:** `{rs.url}`  ")
+        if rs.source_type in ("azure_devops", "dynamics_fo", "google_sheets", "quickbooks", "github"):
+            if rs.url:
+                lines.append(f"**URL:** `{rs.url}`  ")
         if rs.source_type == "odbc" and rs.dsn:
             lines.append(f"**DSN:** `{rs.dsn}`  ")
         if rs.source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint") and rs.sharepoint_url:
