@@ -651,11 +651,9 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             expr.server = match.group(1)
 
     elif source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint"):
-        # Extract SharePoint URL first — applies to all three types
         sp = re.search(r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"', clean)
         if sp:
             expr.sharepoint_url = sp.group(1)
-        # If Excel.Workbook is also present, this is a SharePoint-hosted Excel file
         if "Excel.Workbook" in clean:
             expr.source_type = "excel_sharepoint"
             fn = re.search(r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"', clean)
@@ -665,7 +663,6 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             if sheet:
                 expr.sheet_name = sheet.group(1)
         else:
-            # Regular SharePoint list or file browse — extract list/item name
             lst = re.search(r'Name\s*=\s*"([^"]+)"', clean)
             if lst:
                 expr.table_or_view = lst.group(1)
@@ -729,7 +726,6 @@ def _extract_partition_source_ref(content: str) -> str:
     Returns the expression name if this table's partition is a simple
     #"expression-name" pointer to expressions.tmdl. Returns "" otherwise.
     """
-    # Backtick-delimited block
     bt = re.search(r"source\s*=\s*```([\s\S]*?)```", content)
     if bt:
         block = bt.group(1).strip()
@@ -739,8 +735,6 @@ def _extract_partition_source_ref(content: str) -> str:
                 return ref.group(1)
         return ""
 
-    # Plain inline block — look for source = #"name" with no let block after it
-    # Use a simple regex on the full content
     m = re.search(r'^\s*source\s*=\s*#"([^"]+)"\s*$', content, re.MULTILINE)
     if m:
         return m.group(1)
@@ -771,14 +765,12 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     qg = re.search(r"queryGroup:\s*'?([^'\n]+)'?", content)
     query_group = qg.group(1).strip().strip("'\"") if qg else ""
 
-    # Partition type — handles quoted names with spaces: partition 'My Table' = m
     pt = re.search(
         r"^\s*partition\s+(?:'[^']*'|\"[^\"]*\"|\S+)\s*=\s*(\w+)",
         content, re.MULTILINE
     )
     partition_type = pt.group(1).strip() if pt else ""
 
-    # PBI_ResultType annotation — for scalar helper detection
     rt_m = re.search(r"PBI_ResultType\s*=\s*(\S+)", content)
     result_type = rt_m.group(1).strip() if rt_m else ""
 
@@ -796,7 +788,6 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
         if dax_m:
             dax_partition = dax_m.group(1).strip()
 
-    # Classify inline M by scanning the full file content
     inline_source = None
     if partition_type == "m" and not source_ref:
         inline_source = _classify_m_content(content, name, result_type)
@@ -832,8 +823,8 @@ def _parse_relationships(filepath: str) -> list:
     rels = []
     normalised = re.sub(r"^relationship\s+", "\nrelationship ", content, count=1)
     for block in re.split(r"\nrelationship\s+", normalised):
-        from_m      = re.search(r"fromColumn:\s*(.+?)\.(.+)", block)
-        to_m        = re.search(r"toColumn:\s*(.+?)\.(.+)", block)
+        from_match  = re.search(r"fromColumn:\s*(.+)", block)
+        to_match    = re.search(r"toColumn:\s*(.+)", block)
         from_card_m = re.search(r"fromCardinality:\s*(\S+)", block)
         to_card_m   = re.search(r"toCardinality:\s*(\S+)", block)
         active      = "isActive: false" not in block
@@ -852,15 +843,18 @@ def _parse_relationships(filepath: str) -> list:
         else:
             cardinality = f"{from_card.capitalize()}-to-{to_card.capitalize()}"
 
-        if from_m and to_m:
-            rels.append(Relationship(
-                from_table=from_m.group(1).strip().strip("'\""),
-                from_column=from_m.group(2).strip().strip("'\""),
-                to_table=to_m.group(1).strip().strip("'\""),
-                to_column=to_m.group(2).strip().strip("'\""),
-                cardinality=cardinality,
-                is_active=active,
-            ))
+        if from_match and to_match:
+            from_parts = from_match.group(1).strip().rsplit(".", 1)
+            to_parts   = to_match.group(1).strip().rsplit(".", 1)
+            if len(from_parts) == 2 and len(to_parts) == 2:
+                rels.append(Relationship(
+                    from_table=from_parts[0].strip().strip("'\""),
+                    from_column=from_parts[1].strip().strip("'\""),
+                    to_table=to_parts[0].strip().strip("'\""),
+                    to_column=to_parts[1].strip().strip("'\""),
+                    cardinality=cardinality,
+                    is_active=active,
+                ))
     return rels
 
 
@@ -931,7 +925,6 @@ def _classify_expression(block: str, name: str) -> SourceExpression:
     if qg:
         expr.query_group = qg.group(1).strip().strip("'\"")
 
-    # M Parameter
     if "IsParameterQuery=true" in block or "IsParameterQuery = true" in block:
         expr.source_type = "parameter"
         val = re.match(r"['\"]?" + re.escape(name) + r"['\"]?\s*=\s*(.+?)\s+meta", block, re.DOTALL)
@@ -941,19 +934,16 @@ def _classify_expression(block: str, name: str) -> SourceExpression:
         expr.param_type = t.group(1) if t else "Text"
         return expr
 
-    # Function definition
     if re.search(r"^\s*\([^)]*\)\s*=>", block, re.MULTILINE):
         expr.source_type = "function_def"
         return expr
 
-    # Scalar helper
     rt_m = re.search(r"PBI_ResultType\s*=\s*(\S+)", block)
     rt = rt_m.group(1).strip() if rt_m else ""
     if rt in ("Date", "DateTime", "Number", "Text", "Boolean") and "Table" not in rt:
         expr.source_type = "scalar_helper"
         return expr
 
-    # Use the same content-scan classifier
     classified = _classify_m_content(block, name)
     classified.query_group = expr.query_group
     return classified
