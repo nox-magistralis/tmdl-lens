@@ -103,12 +103,8 @@ def _source_label(rs: ResolvedSource) -> str:
                            "calc_series", "dynamic"):
         return "-"
     label = rs.label or "-"
-    # Strip the leading source type prefix if it duplicates the Source Type column
-    # e.g. "Power Platform Dataflow -> entity" -> just show "entity"
-    # for dataflows, just return the entity since the connector type is already in Source Type
     if rs.source_type in ("dataflow_pbi", "dataflow_platform"):
         if rs.entity:
-            # If there's a chain (derived -> dataflow), show full label
             if rs.chain:
                 return label
             return rs.entity
@@ -118,8 +114,6 @@ def _source_label(rs: ResolvedSource) -> str:
 
 # ---------------------------------------------------------------------------
 # Table type display map
-# Only structurally confirmed types get a specific label.
-# Everything else is "Loaded" — generic and always accurate.
 # ---------------------------------------------------------------------------
 
 _TABLE_TYPE_LABEL = {
@@ -131,6 +125,16 @@ _TABLE_TYPE_LABEL = {
 
 def _table_type_label(table_type: str) -> str:
     return _TABLE_TYPE_LABEL.get(table_type, "Loaded")
+
+
+# ---------------------------------------------------------------------------
+# Auto date table filter
+# Power BI auto-generates these hidden tables and their relationships.
+# They add noise to the output and are suppressed.
+# ---------------------------------------------------------------------------
+
+def _is_auto_date_table(name: str) -> bool:
+    return name.startswith("LocalDateTable_") or name.startswith("DateTableTemplate_")
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +150,11 @@ def _model_summary(
     n_loaded   = len(loaded_tables)
     n_staging  = len(staging_tables)
     n_meas     = sum(len(t.measures) for t in model.tables)
-    n_rels     = len(model.relationships)
+    visible_rels = [
+        r for r in model.relationships
+        if not _is_auto_date_table(r.from_table) and not _is_auto_date_table(r.to_table)
+    ]
+    n_rels = len(visible_rels)
 
     parts = [f"{n_loaded} loaded {'table' if n_loaded == 1 else 'tables'}"]
     if support_tables:
@@ -427,12 +435,17 @@ def _measures_section(tables: list[Table], include_dax: bool) -> str:
 def _relationships_section(model: SemanticModel) -> str:
     lines = ["## 4. Relationships", ""]
 
-    if not model.relationships:
+    visible = [
+        r for r in model.relationships
+        if not _is_auto_date_table(r.from_table) and not _is_auto_date_table(r.to_table)
+    ]
+
+    if not visible:
         lines += ["*No relationships defined in this model.*", "", "---", ""]
         return "\n".join(lines)
 
-    active   = [r for r in model.relationships if r.is_active]
-    inactive = [r for r in model.relationships if not r.is_active]
+    active   = [r for r in visible if r.is_active]
+    inactive = [r for r in visible if not r.is_active]
 
     if active:
         lines += [
@@ -554,6 +567,10 @@ def _statistics_section(
     cg        = [t for t in support_tables if t.table_type == "calc_group"]
     all_meas  = [m for t in model.tables for m in t.measures]
     calc_cols = [c for t in model.tables for c in t.columns if c.is_calculated]
+    visible_rels = [
+        r for r in model.relationships
+        if not _is_auto_date_table(r.from_table) and not _is_auto_date_table(r.to_table)
+    ]
 
     def names(lst):
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "—"
@@ -569,7 +586,7 @@ def _statistics_section(
         f"| Measures-Only Tables | {len(mo)} | {names(mo)} |",
         f"| Calculation Groups | {len(cg)} | {names(cg)} |",
         f"| Not Loaded | {len(staging_tables)} | {names(staging_tables)} |",
-        f"| Relationships | {len(model.relationships)} | — |",
+        f"| Relationships | {len(visible_rels)} | — |",
         f"| Measures | {len(all_meas)} | — |",
         f"| Calculated Columns | {len(calc_cols)} | — |",
         "",
@@ -764,11 +781,15 @@ def generate_html(
 
     # 4. Relationships
     body.append('<h2>4. Relationships</h2>')
-    if not model.relationships:
+    visible_rels = [
+        r for r in model.relationships
+        if not _is_auto_date_table(r.from_table) and not _is_auto_date_table(r.to_table)
+    ]
+    if not visible_rels:
         body.append('<p class="empty">No relationships defined in this model.</p>')
     else:
-        active   = [r for r in model.relationships if r.is_active]
-        inactive = [r for r in model.relationships if not r.is_active]
+        active   = [r for r in visible_rels if r.is_active]
+        inactive = [r for r in visible_rels if not r.is_active]
         if active:
             body.append(_html_table(
                 ["From Table", "From Column", "To Table", "To Column", "Cardinality"],
@@ -836,7 +857,7 @@ def generate_html(
         ["Measures-Only Tables", str(len(mo)),                   _names(mo)],
         ["Calculation Groups",   str(len(cg)),                   _names(cg)],
         ["Not Loaded",           str(len(staging)),              _names(staging)],
-        ["Relationships",        str(len(model.relationships)),  "-"],
+        ["Relationships",        str(len(visible_rels)),         "-"],
         ["Measures",             str(len(all_meas)),             "-"],
         ["Calculated Columns",   str(len(calc_cols)),            "-"],
     ]))

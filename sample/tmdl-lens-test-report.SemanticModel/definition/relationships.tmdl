@@ -1,84 +1,9 @@
-relationship a76e92fd-9c4f-49cd-97d1-f98378f5653d
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table1.Date
-	toColumn: LocalDateTable_1235a396-8c1a-4354-82f9-f5dc91703c09.Date
+relationship a1000001-0000-0000-0000-000000000001
+	fromColumn: fact-sales.order_date
+	toColumn: 'dim-date'.Date
+	toCardinality: one
 
-relationship 319b2947-89b7-4a84-9766-9a7e03447159
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table1.'Start of Week'
-	toColumn: LocalDateTable_87a55924-2729-4f83-89f5-0260ae9bd078.Date
-
-relationship 27d14f09-fcbd-42aa-b888-583506df94df
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table1.'End of Week'
-	toColumn: LocalDateTable_1a1b2bdd-c9f6-4dc5-b6d9-28538638be3a.Date
-
-relationship 521099bc-d3c6-4394-b701-be24989a1ea2
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table1.'Last Day of Month'
-	toColumn: LocalDateTable_e663dc7d-baca-4273-8315-ce6c2fe4b2ac.Date
-
-relationship 921809e8-a069-4eae-b364-2d44475d503a
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table1.'Last Quarter Day'
-	toColumn: LocalDateTable_61129bec-c6f6-4f3b-b99f-412a0e34948a.Date
-
-relationship 6722dfe3-599c-d45a-e52a-11d1a2359d74
-	fromColumn: Table2.'Column1'
-	toColumn: Table1.Date
-
-relationship e9d8fadc-a30d-40a0-9a6d-cb90c5947c7b
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.'Column2'
-	toColumn: LocalDateTable_d251dd5f-12b8-4d75-ace6-35e887190b37.Date
-
-relationship cbc8dc8e-aaed-48c0-8a3b-acc2ffeb57ff
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.'Column3'
-	toColumn: LocalDateTable_0eaff71c-dbb4-416e-88a6-b353f8e8e519.Date
-
-relationship d273a87d-c1aa-4def-8e80-1747dc4c9b50
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.'Column4'
-	toColumn: LocalDateTable_2dbf1ec4-7f1c-4ee5-88cd-2956680f6d61.Date
-
-relationship 349c2125-1803-4ad3-bfa4-7ab10133d771
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.'Column5'
-	toColumn: LocalDateTable_f016af82-450a-4cde-9149-0c70b51e9afe.Date
-
-relationship 2b31e647-552e-4740-8501-002a672f74e0
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.'Column6'
-	toColumn: LocalDateTable_2f08567f-90b5-4fd0-a981-814ac9d9a273.Date
-
-relationship e3b87d4c-854c-49f2-ba44-901dd40eb1d0
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.'Column7'
-	toColumn: LocalDateTable_b20a67d5-65b4-482d-8e39-73c48b06cdf6.Date
-
-relationship 37f1dea4-00c4-485a-8448-fdbb480a5147
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table2.Column8
-	toColumn: LocalDateTable_a432e253-f22f-43c5-91c9-0dfe939cc1c8.Date
-
-relationship 74c16d10-d36f-7f36-2da1-ad84a8768567
-	fromColumn: Table3.'Column1'
-	toColumn: Table1.Date
-
-relationship c4ca0047-679f-468f-a15b-72859297518a
-	joinOnDateBehavior: datePartOnly
-	fromColumn: Table3.Column2
-	toColumn: LocalDateTable_02bcc64b-85d1-445f-bbf2-553a5c09407d.Date
-
-relationship 9092d2ec-8444-072e-1a5b-2830be94b3c1
-	fromColumn: Table4.'Column1'
-	toColumn: Table1.Date
-
-relationship f624752a-66cd-cabf-11e5-3e6dd31e7761
-	fromColumn: Table3.Column3
-	toColumn: Table5.Key
-
-relationship 135fbcc0-c26f-714e-32f9-0ecb912f7225
-	fromColumn: Table4.Column2
-	toColumn: Table5.Key
+relationship a1000001-0000-0000-0000-000000000002
+	fromColumn: fact-sales.customer_id
+	toColumn: 'dim-product'.product_id
+	toCardinality: one

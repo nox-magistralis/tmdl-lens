@@ -832,17 +832,33 @@ def _parse_relationships(filepath: str) -> list:
     rels = []
     normalised = re.sub(r"^relationship\s+", "\nrelationship ", content, count=1)
     for block in re.split(r"\nrelationship\s+", normalised):
-        from_m = re.search(r"fromColumn:\s*(.+?)\.(.+)", block)
-        to_m   = re.search(r"toColumn:\s*(.+?)\.(.+)", block)
-        card_m = re.search(r"fromCardinality:\s*(\S+)", block)
-        active = "isActive: false" not in block
+        from_m      = re.search(r"fromColumn:\s*(.+?)\.(.+)", block)
+        to_m        = re.search(r"toColumn:\s*(.+?)\.(.+)", block)
+        from_card_m = re.search(r"fromCardinality:\s*(\S+)", block)
+        to_card_m   = re.search(r"toCardinality:\s*(\S+)", block)
+        active      = "isActive: false" not in block
+
+        from_card = from_card_m.group(1).strip() if from_card_m else "one"
+        to_card   = to_card_m.group(1).strip()   if to_card_m   else "many"
+
+        if from_card == "one" and to_card == "many":
+            cardinality = "One-to-Many"
+        elif from_card == "many" and to_card == "one":
+            cardinality = "Many-to-One"
+        elif from_card == "many" and to_card == "many":
+            cardinality = "Many-to-Many"
+        elif from_card == "one" and to_card == "one":
+            cardinality = "One-to-One"
+        else:
+            cardinality = f"{from_card.capitalize()}-to-{to_card.capitalize()}"
+
         if from_m and to_m:
             rels.append(Relationship(
                 from_table=from_m.group(1).strip().strip("'\""),
                 from_column=from_m.group(2).strip().strip("'\""),
                 to_table=to_m.group(1).strip().strip("'\""),
                 to_column=to_m.group(2).strip().strip("'\""),
-                cardinality=card_m.group(1).strip() if card_m else "",
+                cardinality=cardinality,
                 is_active=active,
             ))
     return rels
