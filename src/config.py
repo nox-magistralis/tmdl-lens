@@ -90,6 +90,22 @@ def save(config: dict) -> bool:
         return False
 
 
+def reset() -> bool:
+    """
+    Overwrite config.json on disk with the DEFAULTS values.
+    Returns True on success, False on failure.
+    """
+    path = _config_path()
+    config_to_save = dict(DEFAULTS)
+    config_to_save["features"] = dict(DEFAULTS["features"])
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(config_to_save, f, indent=2)
+        return True
+    except OSError:
+        return False
+
+
 def config_path() -> str:
     """Returns the resolved config.json path (for display in UI)."""
     return _config_path()
