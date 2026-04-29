@@ -354,7 +354,7 @@ def _table_detail_block(
         lines += ["**Calculated Columns**", ""]
         for col in calc_cols:
             if include_dax and col.dax_expression:
-                lines += [f"- **`{col.name}`**", "  ```dax", f"  {col.dax_expression[:200]}", "  ```"]
+                lines += [f"- **`{col.name}`**", "  ```dax", f"  {col.dax_expression}", "  ```"]
             else:
                 lines.append(f"- `{col.name}`")
         lines.append("")
@@ -653,7 +653,7 @@ def _esc(text: str) -> str:
 def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") -> str:
     cls = f' class="{css_class}"' if css_class else ""
     th_cells = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body_rows = "".join(f"<tr>{''.join(f'<td>{cell}</td>' for cell in row)}</tr>" for row in rows)
+    body_rows = "".join(f"<tr>{''.join(f'<td>{_esc(cell)}</td>' for cell in row)}</tr>" for row in rows)
     return f"<table{cls}><thead><tr>{th_cells}</tr></thead><tbody>{body_rows}</tbody></table>"
 
 

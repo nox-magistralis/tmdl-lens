@@ -340,7 +340,7 @@ def _parse_column(block: str) -> Optional[Column]:
             if re.match(r"(lineageTag|summarizeBy|annotation|formatString|isHidden|sortByColumn|extendedProperty|dataCategory):", s):
                 break
             dax_lines.append(line)
-        dax = "\n".join(dax_lines).strip().lstrip("=").strip()
+        dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
         return Column(name=name, data_type="calculated", is_calculated=True,
                       dax_expression=dax, is_hidden="isHidden" in block)
 
@@ -383,7 +383,7 @@ def _parse_measure(block: str) -> Optional[Measure]:
     fmt    = re.search(r"formatString:\s*(.+)", block)
     desc   = re.search(r"description:\s*(.+)", block)
 
-    multiline_dax = "\n".join(dax_lines).strip()
+    multiline_dax = "\n".join(dax_lines).strip().rstrip("`").strip()
     return Measure(
         name=name,
         dax_expression=multiline_dax if multiline_dax else inline_dax,
@@ -407,7 +407,7 @@ def _dedent(text: str) -> str:
 def _parse_calculation_items(content: str) -> list:
     items = []
     blocks = _extract_blocks(content, "calculationItem ")
-    for block in blocks:
+    for position, block in enumerate(blocks):
         header = block.strip().split("\n")[0].strip()
         name_m = (
             re.match(r"calculationItem\s+'([^']+)'", header) or
@@ -419,16 +419,12 @@ def _parse_calculation_items(content: str) -> list:
         name = name_m.group(1).strip()
 
         ordinal_m = re.search(r"ordinal:\s*(\d+)", block)
-        ordinal = int(ordinal_m.group(1)) if ordinal_m else 0
+        ordinal = int(ordinal_m.group(1)) if ordinal_m else position
 
         dax = ""
-        bt_m = re.search(r"expression\s*=\s*```([\s\S]*?)```", block)
+        bt_m = re.search(r"calculationItem\s+\S+\s*=\s*```([\s\S]*?)```", block)
         if bt_m:
             dax = _dedent(bt_m.group(1))
-        else:
-            inline_m = re.search(r"expression\s*=\s*(.+)", block)
-            if inline_m:
-                dax = inline_m.group(1).strip()
 
         fmt_expr = ""
         fmt_bt = re.search(r"formatStringExpression\s*=\s*```([\s\S]*?)```", block)
@@ -438,6 +434,10 @@ def _parse_calculation_items(content: str) -> list:
             fmt_inline = re.search(r'formatStringExpression\s*=\s*"([^"]+)"', block)
             if fmt_inline:
                 fmt_expr = fmt_inline.group(1).strip()
+            else:
+                fmt_inline2 = re.search(r"formatStringExpression\s*=\s*(.+)", block)
+                if fmt_inline2:
+                    fmt_expr = fmt_inline2.group(1).strip().strip('`')
 
         items.append(CalculationItem(
             name=name,
