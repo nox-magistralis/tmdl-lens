@@ -193,9 +193,9 @@ def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
             sheet = f" -> {expr.sheet_name}" if expr.sheet_name else ""
             return f"Excel (SharePoint) -> {expr.file_name}{sheet}"
         elif expr.sheet_name:
-            return f"Excel (SharePoint) -> {expr.sheet_name} (dynamic file)"
+            return f"Excel (SharePoint) -> [dynamic] -> {expr.sheet_name}"
         else:
-            return "Excel (SharePoint) -> dynamic file"
+            return "Excel (SharePoint) -> [dynamic]"
 
     if t == "excel_local":
         sheet = f" -> {expr.sheet_name}" if expr.sheet_name else ""
