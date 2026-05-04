@@ -195,6 +195,7 @@ _CONNECTOR_CHECKS = [
     # SQL
     ("Sql.Database(",               "sql"),
     ("AzureSQL.Database(",          "sql"),
+    ("AmazonRedshift.Database(",    "sql"),
     # Cloud storage / data platforms
     ("AzureStorage.BlobContents(",  "azure_storage"),
     ("AzureStorage.Blobs(",         "azure_storage"),
@@ -602,7 +603,7 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         if entity: expr.entity       = entity.group(1)
 
     elif source_type in ("sql", "sql_native_query"):
-        sql_m = re.search(r'(?:Sql|AzureSQL)\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"', clean)
+        sql_m = re.search(r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"', clean)
         if sql_m:
             expr.server   = sql_m.group(1)
             expr.database = sql_m.group(2)
@@ -611,10 +612,15 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             expr.source_type  = "sql_native_query"
             expr.native_query = native.group(1)
         else:
-            tbl = re.search(r'Schema\s*=\s*"([^"]+)"\s*,\s*Item\s*=\s*"([^"]+)"', clean)
-            if tbl:
-                expr.schema        = tbl.group(1)
-                expr.table_or_view = tbl.group(2)
+            native_vq = re.search(r'Value\.NativeQuery\s*\([^,]+,\s*"([^"]+)"', clean)
+            if native_vq:
+                expr.source_type  = "sql_native_query"
+                expr.native_query = native_vq.group(1)
+            else:
+                tbl = re.search(r'Schema\s*=\s*"([^"]+)"\s*,\s*Item\s*=\s*"([^"]+)"', clean)
+                if tbl:
+                    expr.schema        = tbl.group(1)
+                    expr.table_or_view = tbl.group(2)
 
     elif source_type == "dataverse":
         env = re.search(r'Dataverse\.Feed\s*\(\s*"([^"]+)"', clean)
