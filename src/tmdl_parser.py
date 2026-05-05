@@ -75,6 +75,13 @@ class MParameter:
 
 
 @dataclass
+class PhysicalTableRef:
+    schema: str = ""
+    table: str = ""
+    source: str = "navigation"  # navigation | native_query
+
+
+@dataclass
 class SourceExpression:
     """
     One entry from expressions.tmdl — a shared M query or M parameter.
@@ -137,6 +144,7 @@ class SourceExpression:
     # Derived / combine fields
     derived_from: str = ""
     combine_sources: list = field(default_factory=list)
+    physical_tables: list = field(default_factory=list)
 
     # Unknown connector — raw function name surfaced for user labelling
     connector_fn: str = ""
@@ -617,10 +625,21 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
                 expr.source_type  = "sql_native_query"
                 expr.native_query = native_vq.group(1)
             else:
-                tbl = re.search(r'Schema\s*=\s*"([^"]+)"\s*,\s*Item\s*=\s*"([^"]+)"', clean)
-                if tbl:
-                    expr.schema        = tbl.group(1)
-                    expr.table_or_view = tbl.group(2)
+                for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
+                    schema_val = nav.group(1)
+                    item_val   = nav.group(2)
+                    expr.physical_tables.append(PhysicalTableRef(schema=schema_val, table=item_val, source="navigation"))
+                if expr.physical_tables:
+                    expr.schema        = expr.physical_tables[0].schema
+                    expr.table_or_view = expr.physical_tables[0].table
+                else:
+                    tbl = re.search(r'Schema\s*=\s*"([^"]+)"\s*,\s*Item\s*=\s*"([^"]+)"', clean)
+                    if tbl:
+                        expr.schema        = tbl.group(1)
+                        expr.table_or_view = tbl.group(2)
+                if re.search(r'Value\.NativeQuery\s*\(', clean):
+                    for ref in expr.physical_tables:
+                        ref.source = "native_query"
 
     elif source_type == "dataverse":
         env = re.search(r'Dataverse\.Feed\s*\(\s*"([^"]+)"', clean)
@@ -718,6 +737,20 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         match = re.search(patterns[source_type], clean)
         if match:
             expr.url = match.group(1)
+
+    # Pattern B - Name chain for cloud/platform connectors
+    name_chain_types = {
+        "lakehouse", "fabric_warehouse", "databricks", "snowflake",
+        "bigquery", "adls", "azure_storage", "dataverse",
+        "sharepoint_tables", "odata",
+    }
+    if source_type in name_chain_types and not expr.physical_tables:
+        segments = re.findall(r'\{?\[Name\s*=\s*"([^"]+)"\]\}?\[Data\]', clean)
+        if segments:
+            last = segments[-1]
+            second_last = segments[-2] if len(segments) >= 2 else ""
+            tag = "native_query" if re.search(r'Value\.NativeQuery\s*\(', clean) else "navigation"
+            expr.physical_tables.append(PhysicalTableRef(schema=second_last, table=last, source=tag))
 
 
 # ---------------------------------------------------------------------------

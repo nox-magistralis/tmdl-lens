@@ -53,6 +53,7 @@ class ResolvedSource:
 
     # Web / OData
     url: str = ""
+    physical_tables: list = field(default_factory=list)
 
     # Derivation chain
     derived_from: str = ""
@@ -465,6 +466,7 @@ def _from_expr(expr: SourceExpression, params: dict[str, str], tier: int) -> Res
         file_name=expr.file_name,
         sheet_name=expr.sheet_name,
         url=expr.url,
+        physical_tables=list(expr.physical_tables),
     )
     rs.label = _build_label(expr, params)
     return rs
@@ -488,6 +490,7 @@ def _copy_resolved(name: str, parent: ResolvedSource, tier: int) -> ResolvedSour
         file_name=parent.file_name,
         sheet_name=parent.sheet_name,
         url=parent.url,
+        physical_tables=list(parent.physical_tables),
         label=parent.label,
     )
 

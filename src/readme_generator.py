@@ -288,6 +288,20 @@ def _table_detail_block(
         if rs.source_type in ("sql", "sql_native_query"):
             if rs.schema and rs.table_or_view:
                 lines.append(f"**Table:** `{rs.schema}.{rs.table_or_view}`  ")
+            if rs.physical_tables:
+                if len(rs.physical_tables) == 1:
+                    ref = rs.physical_tables[0]
+                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                    suffix = " (native query)" if ref.source == "native_query" else ""
+                    lines.append(f"**Physical table:** `{label}`{suffix}  ")
+                else:
+                    parts = []
+                    for ref in rs.physical_tables:
+                        label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                        if ref.source == "native_query":
+                            label += " (native query)"
+                        parts.append(f"`{label}`")
+                    lines.append(f"**Physical tables:** {', '.join(parts)}  ")
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
@@ -323,6 +337,20 @@ def _table_detail_block(
             lines.append(f"**Chain:** `{rs.label}`  ")
         if rs.unresolved:
             lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
+        if rs.physical_tables and rs.source_type not in ("sql", "sql_native_query"):
+            if len(rs.physical_tables) == 1:
+                ref = rs.physical_tables[0]
+                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                suffix = " (native query)" if ref.source == "native_query" else ""
+                lines.append(f"**Physical table:** `{label}`{suffix}  ")
+            else:
+                parts = []
+                for ref in rs.physical_tables:
+                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                    if ref.source == "native_query":
+                        label += " (native query)"
+                    parts.append(f"`{label}`")
+                lines.append(f"**Physical tables:** {', '.join(parts)}  ")
     elif table.table_type == "calculated":
         lines.append("**Source:** Calculated (DAX)  ")
         if include_dax and table.dax_partition:
