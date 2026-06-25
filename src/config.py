@@ -8,6 +8,7 @@ applied for anything missing.
 
 import json
 import os
+import re
 import sys
 
 
@@ -104,6 +105,28 @@ def reset() -> bool:
         return True
     except OSError:
         return False
+
+
+def validate(config: dict) -> list[str]:
+    errors = []
+    if config.get("output_format") not in ("html", "md"):
+        errors.append("output_format must be 'html' or 'md'")
+    wd = config.get("watch_debounce")
+    if not isinstance(wd, int) or wd < 1:
+        errors.append("watch_debounce must be an integer >= 1")
+    st = config.get("schedule_time")
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(st)):
+        errors.append("schedule_time must match HH:MM format (24h)")
+    sd = config.get("schedule_day")
+    if sd not in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
+        errors.append("schedule_day must be one of: Mon, Tue, Wed, Thu, Fri, Sat, Sun")
+    rf = config.get("reports_folder")
+    if rf and not isinstance(rf, str):
+        errors.append("reports_folder must be a string")
+    of = config.get("output_folder")
+    if of and not isinstance(of, str):
+        errors.append("output_folder must be a string")
+    return errors
 
 
 def config_path() -> str:
