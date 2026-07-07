@@ -90,6 +90,55 @@ def _source_type_label(source_type: str) -> str:
     return _SOURCE_TYPE_LABEL.get(source_type, source_type.replace("_", " ").title())
 
 
+# (namespace, function) -> short display name for the Source Type column.
+# Duplicated locally from source_resolver.py's _CONNECTOR_DISPLAY (private)
+# plus entries for database connectors not in that dict, to avoid a new
+# cross-module dependency. Unknown connectors fall back to "{namespace} {function}".
+_CONNECTOR_TYPE_LABEL = {
+    ("PowerBI", "Dataflows"):               "Power BI Dataflow",
+    ("PowerPlatform", "Dataflows"):          "Power Platform Dataflow",
+    ("Sql", "Database"):                    "SQL",
+    ("AzureSQL", "Database"):               "SQL",
+    ("AmazonRedshift", "Database"):         "SQL",
+    ("Odbc", "DataSource"):                 "ODBC",
+    ("SharePoint", "Files"):                "SharePoint Files",
+    ("SharePoint", "Tables"):               "SharePoint List",
+    ("Excel", "Workbook"):                  "Excel",
+    ("Csv", "Document"):                    "CSV (local)",
+    ("Web", "Contents"):                    "Web API",
+    ("OData", "Feed"):                      "OData",
+    ("SmartsheetGlobal", "Contents"):       "Smartsheet",
+    ("Smartsheet", "Tables"):               "Smartsheet",
+    ("Dataverse", "Feed"):                  "Dataverse",
+    ("AzureDevOps", "Contents"):            "Azure DevOps",
+    ("Dynamics365", "FinanceAndOperations"):"Dynamics 365 F&O",
+    ("GoogleSheets", "Contents"):           "Google Sheets",
+    ("QuickBooks", "Contents"):             "QuickBooks",
+    ("GitHub", "Contents"):                 "GitHub",
+    ("Oracle", "Database"):                 "Oracle",
+    ("MySql", "Database"):                  "MySQL",
+    ("PostgreSQL", "Database"):             "PostgreSQL",
+    ("DB2", "Database"):                    "IBM Db2",
+    ("SapHana", "Database"):                "SAP HANA",
+    ("Snowflake", "Database"):              "Snowflake",
+    ("Teradata", "Database"):               "Teradata",
+    ("Databricks", "Catalogs"):             "Databricks",
+    ("Databricks", "Contents"):             "Databricks",
+}
+
+def _connector_type_label(rs: ResolvedSource) -> str:
+    """Return a short Source Type display name for a ResolvedSource.
+    Uses connector_namespace/connector_function for connectors; falls
+    back to _source_type_label for non-connector types."""
+    if rs.source_type == "connector":
+        key = (rs.connector_namespace, rs.connector_function)
+        label = _CONNECTOR_TYPE_LABEL.get(key)
+        if label:
+            return label
+        return f"{rs.connector_namespace} {rs.connector_function}"
+    return _source_type_label(rs.source_type)
+
+
 def _source_label(rs: ResolvedSource) -> str:
     """
     Returns the display string for the Source column in the Data Sources table.
@@ -105,7 +154,7 @@ def _source_label(rs: ResolvedSource) -> str:
     if rs.unresolved:
         return rs.unresolved_reason or "Unresolved"
     label = rs.label or "-"
-    if rs.source_type in ("dataflow_pbi", "dataflow_platform"):
+    if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform"):
         if rs.entity:
             if rs.chain:
                 return label
@@ -223,7 +272,7 @@ def _data_sources_section(
         for t in loaded_tables:
             rs = get_table_source(t, resolved)
             if rs:
-                src_type = _source_type_label(rs.source_type)
+                src_type = _connector_type_label(rs)
                 label    = _source_label(rs)
             else:
                 src_type = "—"
@@ -257,7 +306,7 @@ def _data_sources_section(
         for t in staging_tables:
             rs = get_table_source(t, resolved)
             if rs:
-                src_type = _source_type_label(rs.source_type)
+                src_type = _connector_type_label(rs)
                 label    = _source_label(rs)
             else:
                 src_type = "—"
@@ -281,11 +330,13 @@ def _table_detail_block(
     rs = get_table_source(table, resolved)
 
     if rs:
-        src_type_display = _source_type_label(rs.source_type)
+        src_type_display = _connector_type_label(rs)
         lines.append(f"**Source:** {src_type_display}  ")
-        if rs.source_type in ("dataflow_pbi", "dataflow_platform") and rs.entity:
+        # Dataflow entity (PowerBI / PowerPlatform)
+        if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform") and rs.entity:
             lines.append(f"**Entity:** `{rs.entity}`  ")
-        if rs.source_type in ("sql", "sql_native_query"):
+        # SQL (Sql/AzureSQL/AmazonRedshift .Database)
+        if rs.source_type == "connector" and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift") and rs.connector_function == "Database":
             if rs.schema and rs.table_or_view:
                 lines.append(f"**Table:** `{rs.schema}.{rs.table_or_view}`  ")
             if rs.physical_tables:
@@ -306,38 +357,63 @@ def _table_detail_block(
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
-        if rs.source_type in ("oracle", "mysql", "postgresql", "db2", "sap_hana", "snowflake"):
+        # Oracle/MySql/PostgreSQL/DB2/SapHana/Snowflake .Database
+        if rs.source_type == "connector" and rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake") and rs.connector_function == "Database":
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
-        if rs.source_type == "teradata":
+        # Teradata .Database
+        if rs.source_type == "connector" and rs.connector_namespace == "Teradata" and rs.connector_function == "Database":
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
-        if rs.source_type == "databricks":
+        # Databricks .Catalogs / .Contents
+        if rs.source_type == "connector" and rs.connector_namespace == "Databricks" and rs.connector_function in ("Catalogs", "Contents"):
             if rs.server:
                 lines.append(f"**Host:** `{rs.server}`  ")
-        if rs.source_type == "dataverse":
+        # Dataverse .Feed
+        if rs.source_type == "connector" and rs.connector_namespace == "Dataverse" and rs.connector_function == "Feed":
             if rs.url:
                 lines.append(f"**Environment URL:** `{rs.url}`  ")
-        if rs.source_type in ("azure_devops", "dynamics_fo", "google_sheets", "quickbooks", "github"):
+        # AzureDevOps/Contents, Dynamics365/FinanceAndOperations, GoogleSheets/QuickBooks/GitHub/Contents
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace == "AzureDevOps" and rs.connector_function == "Contents")
+            or (rs.connector_namespace == "Dynamics365" and rs.connector_function == "FinanceAndOperations")
+            or (rs.connector_namespace in ("GoogleSheets", "QuickBooks", "GitHub") and rs.connector_function == "Contents")
+        ):
             if rs.url:
                 lines.append(f"**URL:** `{rs.url}`  ")
-        if rs.source_type == "odbc" and rs.dsn:
+        # ODBC .DataSource
+        if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
             lines.append(f"**DSN:** `{rs.dsn}`  ")
-        if rs.source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint") and rs.sharepoint_url:
+        # SharePoint .Files / .Tables
+        if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
             lines.append(f"**SharePoint URL:** `{rs.sharepoint_url}`  ")
-        if rs.source_type in ("excel_local", "csv_local", "excel_sharepoint") and rs.file_name:
+        # File — Excel.Workbook or Csv.Document
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
+            or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
+        ) and rs.file_name:
             lines.append(f"**File:** `{rs.file_name}`  ")
-        if rs.source_type in ("excel_local", "excel_sharepoint") and rs.sheet_name:
+        # Sheet — Excel.Workbook
+        if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
             lines.append(f"**Sheet:** `{rs.sheet_name}`  ")
-        if rs.source_type in ("web_api", "odata") and rs.url:
+        # Web API / OData
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace == "Web" and rs.connector_function == "Contents")
+            or (rs.connector_namespace == "OData" and rs.connector_function == "Feed")
+        ) and rs.url:
             lines.append(f"**URL:** `{rs.url}`  ")
         if rs.chain:
             lines.append(f"**Chain:** `{rs.label}`  ")
         if rs.unresolved:
             lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
-        if rs.physical_tables and rs.source_type not in ("sql", "sql_native_query"):
+        # Fallback physical-table display — for connectors other than SQL Database
+        if rs.physical_tables and not (
+            rs.source_type == "connector"
+            and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
+            and rs.connector_function == "Database"
+        ):
             if len(rs.physical_tables) == 1:
                 ref = rs.physical_tables[0]
                 label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
@@ -725,7 +801,7 @@ def generate_html(
         rows = []
         for t in loaded:
             rs = get_table_source(t, resolved)
-            src_type = _source_type_label(rs.source_type) if rs else "-"
+            src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
             rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
@@ -738,7 +814,7 @@ def generate_html(
         rows = []
         for t in staging:
             rs = get_table_source(t, resolved)
-            src_type = _source_type_label(rs.source_type) if rs else "-"
+            src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
             rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
@@ -751,8 +827,8 @@ def generate_html(
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
         if rs:
-            body.append(f'<p><strong>Source:</strong> {_esc(_source_type_label(rs.source_type))}</p>')
-            if rs.label and rs.label != _source_type_label(rs.source_type):
+            body.append(f'<p><strong>Source:</strong> {_esc(_connector_type_label(rs))}</p>')
+            if rs.label and rs.label != _connector_type_label(rs):
                 body.append(f'<p><strong>Detail:</strong> {_esc(rs.label)}</p>')
         elif t.table_type == "calculated":
             body.append('<p><strong>Source:</strong> Calculated (DAX)</p>')
