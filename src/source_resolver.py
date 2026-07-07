@@ -31,6 +31,11 @@ class ResolvedSource:
     resolution_tier: int = 1
     label: str = ""
 
+    # Connector identity (populated when source_type == "connector")
+    connector_namespace: str = ""
+    connector_function: str = ""
+    is_native_query: bool = False
+
     # Dataflow
     workspace_id: str = ""
     dataflow_id: str = ""
@@ -72,83 +77,36 @@ class ResolvedSource:
 # ---------------------------------------------------------------------------
 
 _TERMINAL_TYPES = {
-    # Known connectors
-    "dataflow_pbi", "dataflow_platform",
-    "sql", "sql_native_query",
-    "odbc", "oledb",
-    "sharepoint_files", "sharepoint_tables",
-    "excel_sharepoint", "excel_local",
-    "csv_local",
-    "web_api", "odata",
+    "connector",
     "hardcoded", "embedded",
-    "smartsheet", "calc_series",
-    # Cloud / platform connectors
-    "azure_storage", "adls", "lakehouse", "fabric_warehouse",
-    "databricks", "snowflake",
-    "google_analytics", "bigquery",
-    "salesforce",
-    "exchange", "active_directory",
-    "sap_hana", "sap_bw",
-    "oracle", "mysql", "postgresql", "teradata", "db2",
-    # Special
-    "powerbi_dataset", "dataverse",
-    "azure_devops", "dynamics_fo",
-    "google_sheets", "quickbooks", "github",
-    "connector_unknown",
     "dynamic", "unresolved",
     "function_def", "scalar_helper",
 }
 
-# Human-readable labels for connector source types
-_CONNECTOR_LABELS = {
-    "dataflow_pbi":      "Power BI Dataflow",
-    "dataflow_platform": "Power Platform Dataflow",
-    "sql":               "SQL Database",
-    "sql_native_query":  "SQL (Native Query)",
-    "odbc":              "ODBC",
-    "oledb":             "OLE DB",
-    "sharepoint_files":  "SharePoint Files",
-    "sharepoint_tables": "SharePoint List",
-    "excel_sharepoint":  "Excel (SharePoint)",
-    "excel_local":       "Excel (Local)",
-    "csv_local":         "CSV (Local)",
-    "web_api":           "Web API",
-    "odata":             "OData",
-    "hardcoded":         "Hardcoded (Inline M)",
-    "embedded":          "Embedded Data",
-    "smartsheet":        "Smartsheet",
-    "calc_series":       "Calculated Series",
-    "azure_storage":     "Azure Blob Storage",
-    "adls":              "Azure Data Lake Storage",
-    "lakehouse":         "Microsoft Fabric Lakehouse",
-    "fabric_warehouse":  "Microsoft Fabric Warehouse",
-    "databricks":        "Databricks",
-    "snowflake":         "Snowflake",
-    "google_analytics":  "Google Analytics",
-    "bigquery":          "Google BigQuery",
-    "salesforce":        "Salesforce",
-    "exchange":          "Exchange",
-    "active_directory":  "Active Directory",
-    "sap_hana":          "SAP HANA",
-    "sap_bw":            "SAP BW",
-    "oracle":            "Oracle Database",
-    "mysql":             "MySQL",
-    "postgresql":        "PostgreSQL",
-    "teradata":          "Teradata",
-    "db2":               "IBM Db2",
-    "azure_devops":      "Azure DevOps",
-    "dynamics_fo":       "Dynamics 365 Finance & Operations",
-    "google_sheets":     "Google Sheets",
-    "quickbooks":        "QuickBooks",
-    "github":            "GitHub",
-    "table_combine":     "Combined Queries",
-    "dynamic":           "Dynamic M",
-    "unresolved":        "Unresolved",
-    "function_def":      "Helper Function",
-    "scalar_helper":     "Scalar Helper",
-    "powerbi_dataset":    "Power BI Dataset",
-    "dataverse":          "Dataverse",
-    "connector_unknown": "Unknown Connector",
+# (namespace, function) -> friendly display name
+# Only covers known connector types; unknown connectors fall back to
+# "{namespace} -> {function}" with available detail fields.
+_CONNECTOR_DISPLAY = {
+    ("PowerBI", "Dataflows"):             "Power BI Dataflow",
+    ("PowerPlatform", "Dataflows"):        "Power Platform Dataflow",
+    ("Sql", "Database"):                  "SQL",
+    ("AzureSQL", "Database"):             "SQL",
+    ("AmazonRedshift", "Database"):       "SQL",
+    ("Odbc", "DataSource"):               "ODBC",
+    ("SharePoint", "Files"):              "SharePoint Files",
+    ("SharePoint", "Tables"):             "SharePoint List",
+    ("Excel", "Workbook"):                "Excel",
+    ("Csv", "Document"):                  "CSV (local)",
+    ("Web", "Contents"):                  "Web API",
+    ("OData", "Feed"):                    "OData",
+    ("SmartsheetGlobal", "Contents"):     "Smartsheet",
+    ("Smartsheet", "Tables"):             "Smartsheet",
+    ("Dataverse", "Feed"):                "Dataverse",
+    ("AzureDevOps", "Contents"):          "Azure DevOps",
+    ("Dynamics365", "FinanceAndOperations"): "Dynamics 365 F&O",
+    ("GoogleSheets", "Contents"):         "Google Sheets",
+    ("QuickBooks", "Contents"):           "QuickBooks",
+    ("GitHub", "Contents"):               "GitHub",
 }
 
 
@@ -159,68 +117,111 @@ _CONNECTOR_LABELS = {
 def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
     t = expr.source_type
 
-    if t in ("dataflow_pbi", "dataflow_platform"):
-        connector = "Power BI Dataflow" if t == "dataflow_pbi" else "Power Platform Dataflow"
-        entity = expr.entity or "?"
-        return f"{connector} -> {entity}"
+    # ── All connectors (single branch) ──────────────────────────────────
+    if t == "connector":
+        ns   = expr.connector_namespace
+        func = expr.connector_function
 
-    if t == "sql":
-        server = _resolve_param(expr.server, params)
-        db     = _resolve_param(expr.database, params)
-        if expr.schema and expr.table_or_view:
-            return f"SQL -> {server} -> {db} -> {expr.schema}.{expr.table_or_view}"
-        return f"SQL -> {server} -> {db}"
+        # 1. Native query SQL (must be checked before generic SQL)
+        if expr.is_native_query and (ns, func) in (
+            ("Sql", "Database"), ("AzureSQL", "Database"), ("AmazonRedshift", "Database"),
+        ):
+            server = _resolve_param(expr.server, params)
+            db     = _resolve_param(expr.database, params)
+            return f"SQL (native query) -> {server} -> {db}"
 
-    if t == "sql_native_query":
-        server = _resolve_param(expr.server, params)
-        db     = _resolve_param(expr.database, params)
-        return f"SQL (native query) -> {server} -> {db}"
+        # 2. Dataflows
+        if (ns, func) in (("PowerBI", "Dataflows"), ("PowerPlatform", "Dataflows")):
+            connector = "Power BI Dataflow" if (ns, func) == ("PowerBI", "Dataflows") else "Power Platform Dataflow"
+            entity = expr.entity or "?"
+            return f"{connector} -> {entity}"
 
-    if t == "odbc":
-        dsn = expr.dsn or "?"
-        tbl = f" -> {expr.schema}.{expr.table_or_view}" if expr.table_or_view else ""
-        return f"ODBC -> {dsn}{tbl}"
+        # 3. SQL (generic)
+        if (ns, func) in (("Sql", "Database"), ("AzureSQL", "Database"), ("AmazonRedshift", "Database")):
+            server = _resolve_param(expr.server, params)
+            db     = _resolve_param(expr.database, params)
+            if expr.schema and expr.table_or_view:
+                return f"SQL -> {server} -> {db} -> {expr.schema}.{expr.table_or_view}"
+            return f"SQL -> {server} -> {db}"
 
-    if t == "sharepoint_files":
-        fn = f" -> {expr.file_name}" if expr.file_name else ""
-        return f"SharePoint Files -> {expr.sharepoint_url}{fn}"
+        # 4. ODBC
+        if (ns, func) == ("Odbc", "DataSource"):
+            dsn = expr.dsn or "?"
+            tbl = f" -> {expr.schema}.{expr.table_or_view}" if expr.table_or_view else ""
+            return f"ODBC -> {dsn}{tbl}"
 
-    if t == "sharepoint_tables":
-        lst = f" -> {expr.table_or_view}" if expr.table_or_view else ""
-        return f"SharePoint List -> {expr.sharepoint_url}{lst}"
+        # 5. SharePoint Files
+        if (ns, func) == ("SharePoint", "Files"):
+            fn = f" -> {expr.file_name}" if expr.file_name else ""
+            return f"SharePoint Files -> {expr.sharepoint_url}{fn}"
 
-    if t == "excel_sharepoint":
-        if expr.file_name:
-            sheet = f" -> {expr.sheet_name}" if expr.sheet_name else ""
-            return f"Excel (SharePoint) -> {expr.file_name}{sheet}"
-        elif expr.sheet_name:
-            return f"Excel (SharePoint) -> [dynamic] -> {expr.sheet_name}"
-        else:
-            return "Excel (SharePoint) -> [dynamic]"
+        # 6. SharePoint List
+        if (ns, func) == ("SharePoint", "Tables"):
+            lst = f" -> {expr.table_or_view}" if expr.table_or_view else ""
+            return f"SharePoint List -> {expr.sharepoint_url}{lst}"
 
-    if t == "excel_local":
-        sheet = f" -> {expr.sheet_name}" if expr.sheet_name else ""
-        return f"Excel (local) -> {expr.file_name}{sheet}"
+        # 7. Excel (SharePoint)
+        if (ns, func) == ("Excel", "Workbook"):
+            if expr.file_name:
+                sheet = f" -> {expr.sheet_name}" if expr.sheet_name else ""
+                return f"Excel (SharePoint) -> {expr.file_name}{sheet}"
+            elif expr.sheet_name:
+                return f"Excel (SharePoint) -> [dynamic] -> {expr.sheet_name}"
+            else:
+                return "Excel (SharePoint) -> [dynamic]"
 
-    if t == "csv_local":
-        return f"CSV (local) -> {expr.file_name}"
+        # 8. CSV (local)
+        if (ns, func) == ("Csv", "Document"):
+            return f"CSV (local) -> {expr.file_name}"
 
-    if t == "web_api":
-        return f"Web API -> {expr.url}"
+        # 9. Web API
+        if (ns, func) == ("Web", "Contents"):
+            return f"Web API -> {expr.url}"
 
-    if t == "odata":
-        tbl = f" -> {expr.table_or_view}" if expr.table_or_view else ""
-        return f"OData -> {expr.url}{tbl}"
+        # 10. OData
+        if (ns, func) == ("OData", "Feed"):
+            tbl = f" -> {expr.table_or_view}" if expr.table_or_view else ""
+            return f"OData -> {expr.url}{tbl}"
 
-    if t == "smartsheet":
-        region = f" ({expr.url})" if expr.url else ""
-        return f"Smartsheet{region}"
+        # 11. Smartsheet
+        if (ns, func) in (("SmartsheetGlobal", "Contents"), ("Smartsheet", "Tables")):
+            region = f" ({expr.url})" if expr.url else ""
+            return f"Smartsheet{region}"
+
+        # 12. Dataverse
+        if (ns, func) == ("Dataverse", "Feed"):
+            return f"Dataverse -> {expr.url or '?'}"
+
+        # 13. Named platform connectors with populated detail
+        friendly = _CONNECTOR_DISPLAY.get((ns, func))
+        if friendly:
+            if expr.url:
+                return f"{friendly} -> {expr.url}"
+            if expr.server and expr.database:
+                return f"{friendly} -> {expr.server} -> {expr.database}"
+            if expr.entity:
+                return f"{friendly} -> {expr.entity}"
+            return friendly
+
+        # 14. Unknown / new connector — show whatever detail we have
+        #     with a generic "{namespace} -> {function}" fallback
+        generic_name = f"{ns} -> {func}"
+        if expr.server and expr.database:
+            return f"{generic_name} -> {expr.server} -> {expr.database}"
+        if expr.url:
+            return f"{generic_name} -> {expr.url}"
+        if expr.entity:
+            return f"{generic_name} -> {expr.entity}"
+        if expr.sharepoint_url:
+            return f"{generic_name} -> {expr.sharepoint_url}"
+        if expr.dsn:
+            return f"{generic_name} -> {expr.dsn}"
+        return generic_name
+
+    # ── Non-connector branches (unchanged) ─────────────────────────────
 
     if t == "embedded":
         return "Embedded data"
-
-    if t == "calc_series":
-        return "Calculated series"
 
     if t == "table_combine":
         sources = ", ".join(expr.combine_sources) if expr.combine_sources else "?"
@@ -235,25 +236,7 @@ def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
     if t in ("function_def", "scalar_helper"):
         return t.replace("_", " ").title()
 
-    if t == "powerbi_dataset":
-        return "Power BI Dataset"
-
-    if t == "dataverse":
-        return f"Dataverse -> {expr.url or '?'}"
-
-    if t == "connector_unknown":
-        fn = expr.connector_fn or "unknown"
-        return f"{fn} (unrecognised connector)"
-
-    # All other new connector types — use the label dict with detail if available
-    friendly = _CONNECTOR_LABELS.get(t, t.replace("_", " ").title())
-    if expr.server and expr.database:
-        return f"{friendly} -> {expr.server} -> {expr.database}"
-    if expr.url:
-        return f"{friendly} -> {expr.url}"
-    if expr.entity:
-        return f"{friendly} -> {expr.entity}"
-    return friendly
+    return t.replace("_", " ").title()
 
 
 def _resolve_param(value: str, params: dict[str, str]) -> str:
@@ -334,9 +317,9 @@ def resolve_sources(
                     parent = resolved[fn_name]
                     rs = _copy_resolved(expr.name, parent, tier=2)
                     entity = expr.function_args.strip('"').split(",")[-1].strip().strip('"')
-                    if entity and rs.source_type in ("dataflow_pbi", "dataflow_platform"):
+                    if entity and rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform"):
                         rs.entity = entity
-                        connector = "Power BI Dataflow" if rs.source_type == "dataflow_pbi" else "Power Platform Dataflow"
+                        connector = "Power BI Dataflow" if rs.connector_namespace == "PowerBI" else "Power Platform Dataflow"
                         rs.label = f"{connector} -> {entity}"
                     rs.derived_from = fn_name
                     rs.chain = [fn_name]
@@ -453,6 +436,9 @@ def _from_expr(expr: SourceExpression, params: dict[str, str], tier: int) -> Res
         expression_name=expr.name,
         source_type=expr.source_type,
         resolution_tier=tier,
+        connector_namespace=expr.connector_namespace,
+        connector_function=expr.connector_function,
+        is_native_query=expr.is_native_query,
         workspace_id=expr.workspace_id,
         dataflow_id=expr.dataflow_id,
         entity=expr.entity,
@@ -477,6 +463,9 @@ def _copy_resolved(name: str, parent: ResolvedSource, tier: int) -> ResolvedSour
         expression_name=name,
         source_type=parent.source_type,
         resolution_tier=tier,
+        connector_namespace=parent.connector_namespace,
+        connector_function=parent.connector_function,
+        is_native_query=parent.is_native_query,
         workspace_id=parent.workspace_id,
         dataflow_id=parent.dataflow_id,
         entity=parent.entity,
