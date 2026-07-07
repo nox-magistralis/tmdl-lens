@@ -551,7 +551,8 @@ def _parse_calculation_items(content: str) -> list:
     items = []
     blocks = _extract_blocks(content, "calculationItem ")
     for position, block in enumerate(blocks):
-        header = block.strip().split("\n")[0].strip()
+        lines = block.split("\n")
+        header = lines[0].strip()
         name_m = (
             re.match(r"calculationItem\s+'([^']+)'", header) or
             re.match(r'calculationItem\s+"([^"]+)"', header) or
@@ -561,26 +562,31 @@ def _parse_calculation_items(content: str) -> list:
             continue
         name = name_m.group(1).strip()
 
-        ordinal_m = re.search(r"ordinal:\s*(\d+)", block)
-        ordinal = int(ordinal_m.group(1)) if ordinal_m else position
+        # Tree-parse the children
+        header_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+        children, _ = _parse_tree(lines, 1, header_indent)
+        root = TmdlNode(key="", children=children)
 
-        dax = ""
-        bt_m = re.search(r"calculationItem\s+\S+\s*=\s*```([\s\S]*?)```", block)
-        if bt_m:
-            dax = _dedent(bt_m.group(1))
-
-        fmt_expr = ""
-        fmt_bt = re.search(r"formatStringExpression\s*=\s*```([\s\S]*?)```", block)
-        if fmt_bt:
-            fmt_expr = _dedent(fmt_bt.group(1))
+        # ordinal — parse integer, fall back to position
+        ordinal_node = _find_child(root, "ordinal")
+        if ordinal_node:
+            try:
+                ordinal = int(ordinal_node.value)
+            except ValueError:
+                ordinal = position
         else:
-            fmt_inline = re.search(r'formatStringExpression\s*=\s*"([^"]+)"', block)
-            if fmt_inline:
-                fmt_expr = fmt_inline.group(1).strip()
-            else:
-                fmt_inline2 = re.search(r"formatStringExpression\s*=\s*(.+)", block)
-                if fmt_inline2:
-                    fmt_expr = fmt_inline2.group(1).strip().strip('`')
+            ordinal = position
+
+        # expression (DAX) — tree parser already handles triple-backtick dedent
+        expr_node = _find_child(root, "expression")
+        dax = expr_node.value if expr_node else ""
+
+        # formatStringExpression — strip quotes on inline values
+        fmt_node = _find_child(root, "formatStringExpression")
+        if fmt_node and fmt_node.value:
+            fmt_expr = fmt_node.value.strip().strip("'\"")
+        else:
+            fmt_expr = ""
 
         items.append(CalculationItem(
             name=name,
