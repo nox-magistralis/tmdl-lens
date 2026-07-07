@@ -1002,14 +1002,20 @@ def _parse_relationships(filepath: str) -> list:
     rels = []
     normalised = re.sub(r"^relationship\s+", "\nrelationship ", content, count=1)
     for block in re.split(r"\nrelationship\s+", normalised):
-        from_match  = re.search(r"fromColumn:\s*(.+)", block)
-        to_match    = re.search(r"toColumn:\s*(.+)", block)
-        from_card_m = re.search(r"fromCardinality:\s*(\S+)", block)
-        to_card_m   = re.search(r"toCardinality:\s*(\S+)", block)
-        active      = "isActive: false" not in block
+        lines = block.split("\n")
+        # header at indent 0, properties at indent 1
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
 
-        from_card = from_card_m.group(1).strip() if from_card_m else "one"
-        to_card   = to_card_m.group(1).strip()   if to_card_m   else "many"
+        from_node = _find_child(root, "fromColumn")
+        to_node   = _find_child(root, "toColumn")
+        if not from_node or not to_node:
+            continue
+
+        from_card_m = _find_child(root, "fromCardinality")
+        to_card_m   = _find_child(root, "toCardinality")
+        from_card = from_card_m.value.strip() if from_card_m else "one"
+        to_card   = to_card_m.value.strip()   if to_card_m   else "many"
 
         if from_card == "one" and to_card == "many":
             cardinality = "One-to-Many"
@@ -1022,18 +1028,20 @@ def _parse_relationships(filepath: str) -> list:
         else:
             cardinality = f"{from_card.capitalize()}-to-{to_card.capitalize()}"
 
-        if from_match and to_match:
-            from_parts = from_match.group(1).strip().rsplit(".", 1)
-            to_parts   = to_match.group(1).strip().rsplit(".", 1)
-            if len(from_parts) == 2 and len(to_parts) == 2:
-                rels.append(Relationship(
-                    from_table=from_parts[0].strip().strip("'\""),
-                    from_column=from_parts[1].strip().strip("'\""),
-                    to_table=to_parts[0].strip().strip("'\""),
-                    to_column=to_parts[1].strip().strip("'\""),
-                    cardinality=cardinality,
-                    is_active=active,
-                ))
+        is_active_node = _find_child(root, "isActive")
+        active = not (is_active_node and is_active_node.value.strip() == "false")
+
+        from_parts = from_node.value.strip().rsplit(".", 1)
+        to_parts   = to_node.value.strip().rsplit(".", 1)
+        if len(from_parts) == 2 and len(to_parts) == 2:
+            rels.append(Relationship(
+                from_table=from_parts[0].strip().strip("'\""),
+                from_column=from_parts[1].strip().strip("'\""),
+                to_table=to_parts[0].strip().strip("'\""),
+                to_column=to_parts[1].strip().strip("'\""),
+                cardinality=cardinality,
+                is_active=active,
+            ))
     return rels
 
 
@@ -1063,14 +1071,16 @@ def _parse_roles(filepath: str) -> list:
         if name.startswith("//"):
             continue
 
+        lines = block.split("\n")
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
+
         filters = []
-        for perm in re.finditer(
-            r"tablePermission\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))\s*=\s*(.+)",
-            block
-        ):
-            table_name = (perm.group(1) or perm.group(2) or perm.group(3)).strip()
-            dax_filter = perm.group(4).strip()
-            filters.append(TableFilter(table=table_name, dax_filter=dax_filter))
+        for child in root.children:
+            if child.key.startswith("tablePermission"):
+                # key = "tablePermission '<table>'" — extract table name from key
+                table_name = child.key[len("tablePermission"):].strip().strip("'\"")
+                filters.append(TableFilter(table=table_name, dax_filter=child.value))
 
         is_dynamic = False
         dynamic_fn = ""
