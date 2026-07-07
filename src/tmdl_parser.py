@@ -88,28 +88,15 @@ class SourceExpression:
     Also used for inline M sources classified directly from table files.
 
     source_type values:
-      dataflow_pbi        PowerBI.Dataflows()
-      dataflow_platform   PowerPlatform.Dataflows()
-      sql                 Sql.Database()
-      sql_native_query    Sql.Database() with native query
-      odbc                Odbc.DataSource()
-      sharepoint_files    SharePoint.Files()
-      sharepoint_tables   SharePoint.Tables()
-      excel_sharepoint    Excel.Workbook() via SharePoint.Files()
-      excel_local         Excel.Workbook(File.Contents(...))
-      csv_local           Csv.Document(File.Contents(...))
-      web_api             Web.Contents()
-      odata               OData.Feed()
-      hardcoded           #table(...) inline data
-      embedded            Table.FromRows() hardcoded data
-      smartsheet          SmartsheetGlobal.Contents() or Smartsheet.Tables()
+      connector           any external data connector (identity in
+                          connector_namespace/connector_function)
       table_combine       Table.Combine({...}) — union of queries
-      calc_series         GENERATESERIES(...)
-      connector_unknown   Unrecognised Namespace.Function() connector
+      embedded            Table.FromRows() hardcoded data
+      hardcoded           #table(...) inline data
       derived             references another expression via Source = #"name"
       derived_table       references another table inline
       parameter           IsParameterQuery = true
-      function_def        function definition
+      function_def        custom function definition
       scalar_helper       returns a scalar value, not a table
       unknown             could not be classified
     """
@@ -117,6 +104,11 @@ class SourceExpression:
     source_type: str = "unknown"
     query_group: str = ""
     raw_m: str = ""
+
+    # Connector identity (populated when source_type == "connector")
+    connector_namespace: str = ""
+    connector_function: str = ""
+    is_native_query: bool = False
 
     # Dataflow fields
     workspace_id: str = ""
@@ -145,9 +137,6 @@ class SourceExpression:
     derived_from: str = ""
     combine_sources: list = field(default_factory=list)
     physical_tables: list = field(default_factory=list)
-
-    # Unknown connector — raw function name surfaced for user labelling
-    connector_fn: str = ""
 
     # Custom function / parameter fields
     function_name: str = ""
@@ -182,84 +171,6 @@ class SemanticModel:
     security_roles: list = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Connector signature registry
-#
-# Maps the start of a Power Query connector function call to a source_type.
-# Checked in priority order — more specific patterns listed first.
-# To add a new connector: one entry here, one label in source_resolver.py.
-# Unknown connectors (Namespace.Function pattern not listed here) are
-# detected automatically and surfaced as source_type="connector_unknown"
-# with the raw function name stored in connector_fn for user labelling.
-# ---------------------------------------------------------------------------
-
-# (pattern_substring, source_type)
-# Checked via `pattern in content` after comment stripping.
-# Order matters — more specific checks first.
-_CONNECTOR_CHECKS = [
-    # Dataflows
-    ("PowerBI.Dataflows(",          "dataflow_pbi"),
-    ("PowerPlatform.Dataflows(",    "dataflow_platform"),
-    # SQL
-    ("Sql.Database(",               "sql"),
-    ("AzureSQL.Database(",          "sql"),
-    ("AmazonRedshift.Database(",    "sql"),
-    # Cloud storage / data platforms
-    ("AzureStorage.BlobContents(",  "azure_storage"),
-    ("AzureStorage.Blobs(",         "azure_storage"),
-    ("AzureDataLake.Contents(",     "adls"),
-    ("AzureBlobStorage.Contents(",  "azure_storage"),
-    ("Lakehouse.Contents(",         "lakehouse"),
-    ("Warehouse.Contents(",         "fabric_warehouse"),
-    ("Databricks.Catalogs(",        "databricks"),
-    ("Databricks.Contents(",        "databricks"),
-    ("Snowflake.Databases(",        "snowflake"),
-    # SharePoint / Files
-    ("SharePoint.Files(",           "sharepoint_files"),
-    ("SharePoint.Tables(",          "sharepoint_tables"),
-    # Excel / CSV / local files
-    ("Excel.Workbook(",             "excel_local"),
-    ("Csv.Document(",               "csv_local"),
-    # Web / API
-    ("Web.Contents(",               "web_api"),
-    ("OData.Feed(",                 "odata"),
-    # ODBC / OLEDB
-    ("Odbc.DataSource(",            "odbc"),
-    ("OleDb.Query(",                "oledb"),
-    # Smartsheet
-    ("SmartsheetGlobal.Contents(",  "smartsheet"),
-    ("Smartsheet.Tables(",          "smartsheet"),
-    # Google
-    ("GoogleAnalytics.Accounts(",   "google_analytics"),
-    ("GoogleBigQuery.Database(",    "bigquery"),
-    # Salesforce
-    ("Salesforce.Data(",            "salesforce"),
-    ("Salesforce.Reports(",         "salesforce"),
-    # Other common connectors
-    ("Exchange.Contents(",          "exchange"),
-    ("ActiveDirectory.Domains(",    "active_directory"),
-    ("SapHana.Database(",           "sap_hana"),
-    ("SapBusinessWarehouse.Cubes(", "sap_bw"),
-    ("Oracle.Database(",            "oracle"),
-    ("MySql.Database(",             "mysql"),
-    ("PostgreSQL.Database(",        "postgresql"),
-    ("Teradata.Database(",          "teradata"),
-    ("DB2.Database(",               "db2"),
-    # Microsoft / Dynamics
-    ("AzureDevOps.Contents(",       "azure_devops"),
-    ("Dynamics365.FinanceAndOperations(", "dynamics_fo"),
-    # SaaS / productivity
-    ("GoogleSheets.Contents(",      "google_sheets"),
-    ("QuickBooks.Contents(",        "quickbooks"),
-    ("GitHub.Contents(",            "github"),
-    # Power BI / Power Platform datasets
-    ("PowerBI.Datasets(",          "powerbi_dataset"),
-    ("Dataverse.Feed(",             "dataverse"),
-    # Inline / hardcoded
-    ("Table.FromRows(",             "embedded"),
-    ("#table(",                     "hardcoded"),
-]
-
 # Transformation functions — these are NOT sources, ignore them
 # when detecting `Table.Combine` specifically for appends/unions.
 _TRANSFORM_FNS = {
@@ -267,6 +178,7 @@ _TRANSFORM_FNS = {
     "Table.MergeQueries",
     "Table.Join",
 }
+
 
 
 # ---------------------------------------------------------------------------
@@ -642,9 +554,9 @@ def _strip_m_comments(content: str) -> str:
 # Priority order:
 #   1. Scalar helper (PBI_ResultType signals non-table output)
 #   2. Table.Combine / Table.Append — union source
-#   3. Known connector signatures (_CONNECTOR_CHECKS)
-#   4. Unknown connector — any Namespace.Function( pattern not in known list
-#   5. Derived table reference — Source = #"name" or Source = TableName
+#   3. Inline / hardcoded — #table(...) or Table.FromRows(...)
+#   4. Generic connector — any Namespace.Function( pattern (primary path)
+#   5. Derived / derived_table — Source = #"name" or Source = TableName
 #   6. Unresolved
 # ---------------------------------------------------------------------------
 
@@ -683,27 +595,30 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
             expr.combine_sources = [r.strip() for r in refs if r.strip()]
             return expr
 
-    # 3. Known connector signatures — checked in priority order
-    for fn_pattern, source_type in _CONNECTOR_CHECKS:
-        if fn_pattern in clean:
-            expr.source_type = source_type
-            # Extract detail fields for connectors that have them
-            _extract_connector_details(expr, clean, source_type)
-            return expr
+    # 3. Inline / hardcoded — these are NOT connectors, matches stay unchanged
+    if "#table(" in clean:
+        expr.source_type = "hardcoded"
+        return expr
+    if "Table.FromRows(" in clean:
+        expr.source_type = "embedded"
+        return expr
 
-    # 4. Unknown connector — detect any Namespace.Function( pattern not already matched
-    #    Ignore transformation functions (NestedJoin, MergeQueries, etc.)
-    unknown = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
-    if unknown:
-        fn = unknown.group(1)
+    # 4. Generic connector detection — primary path for external connectors
+    #    Matches any Namespace.Function( call, excluding M stdlib and transforms
+    generic = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
+    if generic:
+        fn = generic.group(1)
         if fn not in _TRANSFORM_FNS and not fn.startswith("Table.") and not fn.startswith("List.") \
                 and not fn.startswith("Text.") and not fn.startswith("Number.") \
                 and not fn.startswith("Date.") and not fn.startswith("DateTime.") \
                 and not fn.startswith("Record.") and not fn.startswith("Json.") \
                 and not fn.startswith("Binary.") and not fn.startswith("Splitter.") \
                 and not fn.startswith("Combiner.") and not fn.startswith("Replacer."):
-            expr.source_type = "connector_unknown"
-            expr.connector_fn = fn
+            namespace, function = fn.split(".", 1)
+            expr.source_type = "connector"
+            expr.connector_namespace = namespace
+            expr.connector_function = function
+            _extract_connector_details(expr, clean, namespace, function)
             return expr
 
     # 5a. Derived — references a shared expression: Source = #"name"
@@ -739,10 +654,10 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
     return expr
 
 
-def _extract_connector_details(expr: SourceExpression, clean: str, source_type: str) -> None:
-    """Populates detail fields on expr based on source_type. Mutates in place."""
+def _extract_connector_details(expr: SourceExpression, clean: str, namespace: str, function: str) -> None:
+    """Populates detail fields on expr based on namespace/function. Mutates in place."""
 
-    if source_type in ("dataflow_pbi", "dataflow_platform"):
+    if (namespace, function) in (("PowerBI", "Dataflows"), ("PowerPlatform", "Dataflows")):
         wid    = re.search(r'workspaceId\s*=\s*"([^"]+)"', clean)
         dfid   = re.search(r'dataflowId\s*=\s*"([^"]+)"', clean)
         entity = re.search(r'entity\s*=\s*"([^"]+)"', clean)
@@ -750,20 +665,20 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         if dfid:   expr.dataflow_id  = dfid.group(1)
         if entity: expr.entity       = entity.group(1)
 
-    elif source_type in ("sql", "sql_native_query"):
+    elif namespace in ("Sql", "AzureSQL", "AmazonRedshift") and function == "Database":
         sql_m = re.search(r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"', clean)
         if sql_m:
             expr.server   = sql_m.group(1)
             expr.database = sql_m.group(2)
         native = re.search(r'\[Query\s*=\s*"([^"]+)"\]', clean)
         if native:
-            expr.source_type  = "sql_native_query"
-            expr.native_query = native.group(1)
+            expr.is_native_query = True
+            expr.native_query    = native.group(1)
         else:
             native_vq = re.search(r'Value\.NativeQuery\s*\([^,]+,\s*"([^"]+)"', clean)
             if native_vq:
-                expr.source_type  = "sql_native_query"
-                expr.native_query = native_vq.group(1)
+                expr.is_native_query = True
+                expr.native_query    = native_vq.group(1)
             else:
                 for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
                     schema_val = nav.group(1)
@@ -781,46 +696,45 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
                     for ref in expr.physical_tables:
                         ref.source = "native_query"
 
-    elif source_type == "dataverse":
+    elif namespace == "Dataverse" and function == "Feed":
         env = re.search(r'Dataverse\.Feed\s*\(\s*"([^"]+)"', clean)
         if env:
             expr.url = env.group(1)
 
-    elif source_type == "odbc":
+    elif namespace == "Odbc" and function == "DataSource":
         dsn = re.search(r'Odbc\.DataSource\s*\(\s*"([^"]+)"', clean)
         if dsn:
             expr.dsn = dsn.group(1)
 
-    elif source_type in ("oracle", "mysql", "postgresql", "db2", "sap_hana", "snowflake"):
+    elif function == "Database" and namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake"):
         patterns = {
-            "oracle":     r'Oracle\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "mysql":      r'MySql\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "postgresql": r'PostgreSQL\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "db2":        r'DB2\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "sap_hana":   r'SapHana\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "snowflake":  r'Snowflake\.Databases\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "Oracle":    r'Oracle\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "MySql":     r'MySql\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "PostgreSQL": r'PostgreSQL\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "DB2":       r'DB2\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "SapHana":   r'SapHana\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+            "Snowflake": r'Snowflake\.Databases\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
         }
-        match = re.search(patterns[source_type], clean)
+        match = re.search(patterns[namespace], clean)
         if match:
             expr.server   = match.group(1)
             expr.database = match.group(2)
 
-    elif source_type == "teradata":
+    elif namespace == "Teradata" and function == "Database":
         match = re.search(r'Teradata\.Database\s*\(\s*"([^"]+)"', clean)
         if match:
             expr.server = match.group(1)
 
-    elif source_type == "databricks":
+    elif namespace == "Databricks" and function in ("Catalogs", "Contents"):
         match = re.search(r'Databricks\.(?:Catalogs|Contents)\s*\(\s*"([^"]+)"', clean)
         if match:
             expr.server = match.group(1)
 
-    elif source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint"):
+    elif namespace == "SharePoint" and function in ("Files", "Tables"):
         sp = re.search(r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"', clean)
         if sp:
             expr.sharepoint_url = sp.group(1)
         if "Excel.Workbook" in clean:
-            expr.source_type = "excel_sharepoint"
             fn = re.search(r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"', clean)
             if fn:
                 expr.file_name = fn.group(1)
@@ -832,7 +746,7 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             if lst:
                 expr.table_or_view = lst.group(1)
 
-    elif source_type == "excel_local":
+    elif namespace == "Excel" and function == "Workbook":
         fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
         if fn:
             expr.file_name = fn.group(1)
@@ -840,12 +754,12 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         if sheet:
             expr.sheet_name = sheet.group(1)
 
-    elif source_type == "csv_local":
+    elif namespace == "Csv" and function == "Document":
         fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
         if fn:
             expr.file_name = fn.group(1)
 
-    elif source_type in ("web_api", "odata"):
+    elif (namespace, function) in (("Web", "Contents"), ("OData", "Feed")):
         url = re.search(r'(?:Web\.Contents|OData\.Feed)\s*\(\s*"([^"]+)"', clean)
         if url:
             expr.url = url.group(1)
@@ -853,38 +767,38 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         if entity:
             expr.table_or_view = entity.group(1)
 
-    elif source_type == "smartsheet":
+    elif (namespace, function) in (("SmartsheetGlobal", "Contents"), ("Smartsheet", "Tables")):
         region = re.search(r'SmartsheetGlobal\.Contents\s*\(\s*"([^"]+)"', clean)
         if region:
             expr.url = region.group(1)
 
-    elif source_type == "azure_devops":
+    elif (namespace, function) == ("AzureDevOps", "Contents"):
         match = re.search(r'AzureDevOps\.Contents\s*\(\s*"([^"]+)"', clean)
         if match:
             expr.url = match.group(1)
 
-    elif source_type == "dynamics_fo":
+    elif (namespace, function) == ("Dynamics365", "FinanceAndOperations"):
         match = re.search(r'Dynamics365\.FinanceAndOperations\s*\(\s*"([^"]+)"', clean)
         if match:
             expr.url = match.group(1)
 
-    elif source_type in ("google_sheets", "quickbooks", "github"):
+    elif namespace in ("GoogleSheets", "QuickBooks", "GitHub") and function == "Contents":
         patterns = {
-            "google_sheets": r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"',
-            "quickbooks":    r'QuickBooks\.Contents\s*\(\s*"([^"]+)"',
-            "github":        r'GitHub\.Contents\s*\(\s*"([^"]+)"',
+            "GoogleSheets": r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"',
+            "QuickBooks":   r'QuickBooks\.Contents\s*\(\s*"([^"]+)"',
+            "GitHub":       r'GitHub\.Contents\s*\(\s*"([^"]+)"',
         }
-        match = re.search(patterns[source_type], clean)
+        match = re.search(patterns[namespace], clean)
         if match:
             expr.url = match.group(1)
 
     # Pattern B - Name chain for cloud/platform connectors
-    name_chain_types = {
-        "lakehouse", "fabric_warehouse", "databricks", "snowflake",
-        "bigquery", "adls", "azure_storage", "dataverse",
-        "sharepoint_tables", "odata",
+    name_chain_namespaces = {
+        "Lakehouse", "Warehouse", "Databricks", "Snowflake",
+        "GoogleBigQuery", "AzureDataLake", "AzureStorage",
+        "AzureBlobStorage", "Dataverse", "SharePoint", "OData",
     }
-    if source_type in name_chain_types and not expr.physical_tables:
+    if namespace in name_chain_namespaces and not expr.physical_tables:
         segments = re.findall(r'\{?\[Name\s*=\s*"([^"]+)"\]\}?\[Data\]', clean)
         if segments:
             last = segments[-1]
