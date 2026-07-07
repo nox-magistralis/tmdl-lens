@@ -2,6 +2,11 @@
 config.json
 src/config.json
 
+# Local AI tooling — personal, not committed
+.clinerules
+AGENTS.md
+CLAUDE.md
+
 # Throwaway debug/test scripts — never commit these
 debug*.py
 test_*.py

@@ -333,34 +333,156 @@ def _extract_blocks(text: str, keyword: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Tree node parser — shared indentation-tree infrastructure
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TmdlNode:
+    key: str
+    value: str = ""
+    children: list = field(default_factory=list)
+    indent: int = 0
+
+
+def _parse_tree(lines: list, start: int, parent_indent: int) -> tuple[list, int]:
+    """
+    Walk lines starting at `start`, treating each line's leading whitespace
+    as its indent level. Returns (list_of_TmdlNode_siblings, next_line_index).
+
+    A line becomes a sibling when its indent == parent_indent + 1.
+    Key/value split: first `=` or `:` separates key (before) from value (after).
+    Triple-backtick values are consumed as raw text (dedented), not recursed.
+    Blank lines are skipped.
+    """
+    nodes = []
+    i = start
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Skip blank lines
+        if not stripped:
+            i += 1
+            continue
+
+        indent = len(line) - len(line.lstrip("\t "))
+
+        # Stop if we've gone back to parent_indent or shallower
+        if indent <= parent_indent:
+            break
+
+        # Only process lines exactly one level deeper than parent
+        if indent != parent_indent + 1:
+            i += 1
+            continue
+
+        # Split key/value on first = or :
+        key = stripped
+        value = ""
+        sep_pos = -1
+        eq_pos = stripped.find("=")
+        colon_pos = stripped.find(":")
+        if eq_pos >= 0 and colon_pos >= 0:
+            sep_pos = eq_pos if eq_pos < colon_pos else colon_pos
+        elif eq_pos >= 0:
+            sep_pos = eq_pos
+        elif colon_pos >= 0:
+            sep_pos = colon_pos
+
+        if sep_pos >= 0:
+            key = stripped[:sep_pos].rstrip()
+            value = stripped[sep_pos + 1:].strip()
+
+        node = TmdlNode(key=key, value=value, indent=indent)
+
+        # Triple-backtick multi-line value
+        if value.startswith("```"):
+            raw_lines = []
+            i += 1
+            while i < len(lines):
+                if lines[i].strip() == "```":
+                    i += 1
+                    break
+                raw_lines.append(lines[i])
+                i += 1
+            node.value = _dedent("\n".join(raw_lines))
+            nodes.append(node)
+            continue
+
+        # If no value and deeper lines follow, recurse for children
+        if not value:
+            children, i = _parse_tree(lines, i + 1, indent)
+            node.children = children
+        else:
+            i += 1
+
+        nodes.append(node)
+
+    return nodes, i
+
+
+def _find_child(node: "TmdlNode", key: str) -> Optional["TmdlNode"]:
+    for c in node.children:
+        if c.key == key:
+            return c
+    return None
+
+
+def _find_children(node: "TmdlNode", key: str) -> list:
+    return [c for c in node.children if c.key == key]
+
+
+# ---------------------------------------------------------------------------
 # Column parser
 # ---------------------------------------------------------------------------
 
 def _parse_column(block: str) -> Optional[Column]:
-    lines = block.strip().split("\n")
+    lines = block.split("\n")
     header = lines[0].strip()
 
+    # Detect calculated column: column 'Name' = <dax> or column "Name" = <dax>
     calc = re.match(r"column\s+'(.+?)'\s*=|column\s+\"(.+?)\"\s*=", header)
     if calc:
         name = (calc.group(1) or calc.group(2)).strip()
-        dax_lines = []
-        for line in lines[1:]:
-            s = line.strip()
-            if re.match(r"(lineageTag|summarizeBy|annotation|formatString|isHidden|sortByColumn|extendedProperty|dataCategory):", s):
-                break
-            dax_lines.append(line)
-        dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
-        return Column(name=name, data_type="calculated", is_calculated=True,
-                      dax_expression=dax, is_hidden="isHidden" in block)
+        # Parse children via tree parser
+        base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+        children, _ = _parse_tree(lines, 1, base_indent)
+        root = TmdlNode(key="", children=children)
 
+        # DAX: inline from header, or accumulated from children before known properties
+        dax = ""
+        inline_dax_match = re.match(r"column\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
+        if inline_dax_match:
+            dax = inline_dax_match.group(1).strip().rstrip("`").strip()
+        else:
+            dax_lines = []
+            for line in lines[1:]:
+                s = line.strip()
+                if re.match(r"(lineageTag|summarizeBy|annotation|formatString|isHidden|sortByColumn|extendedProperty|dataCategory):", s):
+                    break
+                dax_lines.append(line)
+            dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
+
+        is_hidden = _find_child(root, "isHidden") is not None
+        return Column(name=name, data_type="calculated", is_calculated=True,
+                      dax_expression=dax, is_hidden=is_hidden)
+
+    # Plain column: column 'Name' or column "Name" or column barename
     plain = re.match(r"column\s+'(.+?)'$|column\s+\"(.+?)\"$|column\s+(\S+)$", header)
     if plain:
         name = (plain.group(1) or plain.group(2) or plain.group(3)).strip()
-        dt = re.search(r"dataType:\s*(\S+)", block)
+        # Parse children via tree parser
+        base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+        children, _ = _parse_tree(lines, 1, base_indent)
+        root = TmdlNode(key="", children=children)
+
+        dt_node = _find_child(root, "dataType")
+        data_type = dt_node.value if dt_node else "unknown"
+        is_hidden = _find_child(root, "isHidden") is not None
         return Column(
             name=name,
-            data_type=dt.group(1) if dt else "unknown",
-            is_hidden="isHidden" in block,
+            data_type=data_type,
+            is_hidden=is_hidden,
         )
     return None
 
@@ -370,16 +492,23 @@ def _parse_column(block: str) -> Optional[Column]:
 # ---------------------------------------------------------------------------
 
 def _parse_measure(block: str) -> Optional[Measure]:
-    lines = block.strip().split("\n")
+    lines = block.split("\n")
     header = lines[0].strip()
     m = re.match(r"measure\s+'(.+?)'\s*=|measure\s+\"(.+?)\"\s*=", header)
     if not m:
         return None
     name = (m.group(1) or m.group(2)).strip()
 
+    # Inline DAX from header
     inline = re.match(r"measure\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
     inline_dax = inline.group(1).strip() if inline else ""
 
+    # Parse children via tree parser
+    base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+    children, _ = _parse_tree(lines, 1, base_indent)
+    root = TmdlNode(key="", children=children)
+
+    # Multi-line DAX: lines before the first known property key
     dax_lines, in_dax = [], True
     for line in lines[1:]:
         s = line.strip()
@@ -387,18 +516,23 @@ def _parse_measure(block: str) -> Optional[Measure]:
             in_dax = False
         if in_dax:
             dax_lines.append(line)
-
-    folder = re.search(r"displayFolder:\s*(.+)", block)
-    fmt    = re.search(r"formatString:\s*(.+)", block)
-    desc   = re.search(r"description:\s*(.+)", block)
-
     multiline_dax = "\n".join(dax_lines).strip().rstrip("`").strip()
+
+    # Look up properties from tree
+    folder_node = _find_child(root, "displayFolder")
+    fmt_node = _find_child(root, "formatString")
+    desc_node = _find_child(root, "description")
+
+    display_folder = folder_node.value.strip().strip("'\"") if folder_node else ""
+    format_string = fmt_node.value.strip().strip("'\"") if fmt_node else ""
+    description = desc_node.value.strip().strip("'\"") if desc_node else ""
+
     return Measure(
         name=name,
         dax_expression=multiline_dax if multiline_dax else inline_dax,
-        display_folder=folder.group(1).strip().strip("'\"") if folder else "",
-        format_string=fmt.group(1).strip().strip("'\"") if fmt else "",
-        description=desc.group(1).strip().strip("'\"") if desc else "",
+        display_folder=display_folder,
+        format_string=format_string,
+        description=description,
     )
 
 
