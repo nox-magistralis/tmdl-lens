@@ -29,6 +29,14 @@ table dim-date
 
 		annotation SummarizationSetBy = Automatic
 
+	column 'IsWeekend' = WEEKDAY('dim-date'[Date], 2) > 5
+		isHidden
+		dataType: boolean
+		lineageTag: 00000003-0000-0000-0000-000000000033
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
 	partition dim-date = calculated
 		mode: import
 		source = CALENDARAUTO()
