@@ -34,6 +34,15 @@ table dim-product
 
 		annotation SummarizationSetBy = Automatic
 
+	column product_url
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000024
+		summarizeBy: none
+		sourceColumn: product_url
+		dataCategory: WebURL
+
+		annotation SummarizationSetBy = Automatic
+
 	partition dim-product = m
 		mode: import
 		queryGroup: 'Dimension Tables'

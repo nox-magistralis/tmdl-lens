@@ -9,6 +9,7 @@ table dim-date
 		lineageTag: 00000003-0000-0000-0000-000000000030
 		summarizeBy: none
 		sourceColumn: Date
+		isKey
 
 		annotation SummarizationSetBy = Automatic
 
@@ -26,6 +27,16 @@ table dim-date
 		lineageTag: 00000003-0000-0000-0000-000000000032
 		summarizeBy: none
 		sourceColumn: MonthName
+		sortByColumn: MonthNumber
+
+		annotation SummarizationSetBy = Automatic
+
+	column MonthNumber
+		dataType: int64
+		formatString: 0
+		lineageTag: 00000003-0000-0000-0000-000000000034
+		summarizeBy: none
+		sourceColumn: MonthNumber
 
 		annotation SummarizationSetBy = Automatic
 

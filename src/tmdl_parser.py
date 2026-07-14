@@ -24,6 +24,12 @@ class Column:
     dax_expression: str = ""
     is_hidden: bool = False
     format_string: str = ""
+    source_column: str = ""
+    summarize_by: str = ""
+    sort_by_column: str = ""
+    data_category: str = ""
+    is_key: bool = False
+    lineage_tag: str = ""
 
 
 @dataclass
@@ -345,6 +351,13 @@ def _find_children(node: "TmdlNode", key: str) -> list:
     return [c for c in node.children if c.key == key]
 
 
+_COL_PROP_STOP = re.compile(
+    r"^(?:dataType|lineageTag|summarizeBy|sourceColumn|formatString|sortByColumn"
+    r"|dataCategory|displayFolder|description|isHidden|isKey|isNullable|isUnique"
+    r"|annotation|extendedProperty|changedProperty|relatedColumnDetails)\b"
+)
+
+
 # ---------------------------------------------------------------------------
 # Column parser
 # ---------------------------------------------------------------------------
@@ -371,7 +384,7 @@ def _parse_column(block: str) -> Optional[Column]:
             dax_lines = []
             for line in lines[1:]:
                 s = line.strip()
-                if re.match(r"(lineageTag|summarizeBy|annotation|formatString|isHidden|sortByColumn|extendedProperty|dataCategory):", s):
+                if _COL_PROP_STOP.match(s):
                     break
                 dax_lines.append(line)
             dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
@@ -379,9 +392,26 @@ def _parse_column(block: str) -> Optional[Column]:
         is_hidden = _find_child(root, "isHidden") is not None
         fmt_node_calc = _find_child(root, "formatString")
         format_string_calc = fmt_node_calc.value.strip().strip("'\"") if fmt_node_calc else ""
+        sc_node_calc = _find_child(root, "sourceColumn")
+        source_column_calc = sc_node_calc.value.strip().strip("'\"") if sc_node_calc else ""
+        sb_node_calc = _find_child(root, "summarizeBy")
+        summarize_by_calc = sb_node_calc.value.strip().strip("'\"") if sb_node_calc else ""
+        sort_node_calc = _find_child(root, "sortByColumn")
+        sort_by_column_calc = sort_node_calc.value.strip().strip("'\"") if sort_node_calc else ""
+        dc_node_calc = _find_child(root, "dataCategory")
+        data_category_calc = dc_node_calc.value.strip().strip("'\"") if dc_node_calc else ""
+        is_key_calc = _find_child(root, "isKey") is not None
+        lt_node_calc = _find_child(root, "lineageTag")
+        lineage_tag_calc = lt_node_calc.value.strip().strip("'\"") if lt_node_calc else ""
         return Column(name=name, data_type="calculated", is_calculated=True,
                       dax_expression=dax, is_hidden=is_hidden,
-                      format_string=format_string_calc)
+                      format_string=format_string_calc,
+                      source_column=source_column_calc,
+                      summarize_by=summarize_by_calc,
+                      sort_by_column=sort_by_column_calc,
+                      data_category=data_category_calc,
+                      is_key=is_key_calc,
+                      lineage_tag=lineage_tag_calc)
 
     # Plain column: column 'Name' or column "Name" or column barename
     plain = re.match(r"column\s+'(.+?)'$|column\s+\"(.+?)\"$|column\s+(\S+)$", header)
@@ -397,11 +427,28 @@ def _parse_column(block: str) -> Optional[Column]:
         is_hidden = _find_child(root, "isHidden") is not None
         fmt_node_plain = _find_child(root, "formatString")
         format_string_plain = fmt_node_plain.value.strip().strip("'\"") if fmt_node_plain else ""
+        sc_node_plain = _find_child(root, "sourceColumn")
+        source_column_plain = sc_node_plain.value.strip().strip("'\"") if sc_node_plain else ""
+        sb_node_plain = _find_child(root, "summarizeBy")
+        summarize_by_plain = sb_node_plain.value.strip().strip("'\"") if sb_node_plain else ""
+        sort_node_plain = _find_child(root, "sortByColumn")
+        sort_by_column_plain = sort_node_plain.value.strip().strip("'\"") if sort_node_plain else ""
+        dc_node_plain = _find_child(root, "dataCategory")
+        data_category_plain = dc_node_plain.value.strip().strip("'\"") if dc_node_plain else ""
+        is_key_plain = _find_child(root, "isKey") is not None
+        lt_node_plain = _find_child(root, "lineageTag")
+        lineage_tag_plain = lt_node_plain.value.strip().strip("'\"") if lt_node_plain else ""
         return Column(
             name=name,
             data_type=data_type,
             is_hidden=is_hidden,
             format_string=format_string_plain,
+            source_column=source_column_plain,
+            summarize_by=summarize_by_plain,
+            sort_by_column=sort_by_column_plain,
+            data_category=data_category_plain,
+            is_key=is_key_plain,
+            lineage_tag=lineage_tag_plain,
         )
     return None
 
