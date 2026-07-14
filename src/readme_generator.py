@@ -496,18 +496,25 @@ def _table_detail_block(
             for item in table.calculation_items:
                 lines += [f"**`{item.name}`**", "```dax", item.dax_expression, "```", ""]
 
-    if table.measures:
+    visible_measures = [m for m in table.measures if not m.is_hidden]
+    hidden_measures = [m for m in table.measures if m.is_hidden]
+
+    if visible_measures:
         lines += ["**Measures**", "", "| Measure | Format | Description |", "|---|---|---|"]
-        for m in table.measures:
+        for m in visible_measures:
             fmt  = f"`{m.format_string}`" if m.format_string else "—"
             desc = m.description or "—"
             lines.append(f"| `{m.name}` | {fmt} | {desc} |")
         if include_dax:
             lines += ["", "**Measure DAX**", ""]
-            for m in table.measures:
+            for m in visible_measures:
                 if not m.dax_expression.strip():
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
+
+    if hidden_measures:
+        details = ", ".join(f"`{m.name}`" for m in hidden_measures)
+        lines += [f"**Hidden Measures:** {details}  ", ""]
 
     return "\n".join(lines)
 
@@ -561,7 +568,7 @@ def _column_format_string_inventory(tables: list[Table], heading: str = "Format 
 
 
 def _measure_format_string_inventory(tables: list[Table]) -> str:
-    all_measures = [(t.name, m) for t in tables for m in t.measures]
+    all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
     if not all_measures:
         return ""
 
@@ -590,7 +597,7 @@ def _measure_format_string_inventory(tables: list[Table]) -> str:
 
 
 def _measures_section(tables: list[Table], include_dax: bool) -> str:
-    all_measures = [(t.name, m) for t in tables for m in t.measures]
+    all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
     lines = ["## 3. Measures", ""]
 
     if not all_measures:
@@ -985,20 +992,21 @@ def generate_html(
                 for item in t.calculation_items:
                     body.append(f'<h4>{_code(item.name)}</h4>')
                     body.append(_pre(item.dax_expression))
-        if t.measures:
+        visible_measures = [m for m in t.measures if not m.is_hidden]
+        if visible_measures:
             body.append('<h4>Measures</h4>')
             rows = [[_code(m.name),
                      _code(m.format_string) if m.format_string else "-",
                      _esc(m.description) if m.description else "-"]
-                    for m in t.measures]
+                    for m in visible_measures]
             body.append(_html_table(["Measure", "Format", "Description"], rows))
             if include_dax:
-                for m in t.measures:
+                for m in visible_measures:
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
 
     body.append('<h2>3. Measures</h2>')
-    all_measures = [(t.name, m) for t in model.tables for m in t.measures]
+    all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
     if not all_measures:
         body.append('<p class="empty">No measures defined in this model.</p>')
     else:

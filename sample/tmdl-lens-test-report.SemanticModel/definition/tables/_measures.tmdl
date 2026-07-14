@@ -18,6 +18,7 @@ table _measures
 		formatString: #,##0.00
 
 	measure 'Sales YTD' = TOTALYTD([Total Sales Amount], 'dim-date'[Date])
+		isHidden
 		lineageTag: 00000004-0000-0000-0000-000000000004
 		formatString: #,##0.00
 

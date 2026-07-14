@@ -39,6 +39,8 @@ class Measure:
     display_folder: str = ""
     format_string: str = ""
     description: str = ""
+    is_hidden: bool = False
+    lineage_tag: str = ""
 
 
 @dataclass
@@ -475,10 +477,16 @@ def _parse_measure(block: str) -> Optional[Measure]:
     root = TmdlNode(key="", children=children)
 
     # Multi-line DAX: lines before the first known property key
+    # NOTE: isHidden is a bare flag node (no colon value), but it appears
+    # as a child line in the TMDL block before property-key lines like
+    # lineageTag or formatString. Without isHidden in the stop-list, the
+    # line "isHidden" would leak into multiline_dax. Since the tree parser
+    # already captures it as a child node, we only need to stop DAX collection
+    # from the raw lines at property names that start with known keywords.
     dax_lines, in_dax = [], True
     for line in lines[1:]:
         s = line.strip()
-        if re.match(r"(formatString|displayFolder|lineageTag|annotation|description):", s):
+        if re.match(r"(formatString|displayFolder|lineageTag|isHidden|annotation|description):", s) or s == "isHidden":
             in_dax = False
         if in_dax:
             dax_lines.append(line)
@@ -488,10 +496,14 @@ def _parse_measure(block: str) -> Optional[Measure]:
     folder_node = _find_child(root, "displayFolder")
     fmt_node = _find_child(root, "formatString")
     desc_node = _find_child(root, "description")
+    hidden_node = _find_child(root, "isHidden")
+    lineage_node = _find_child(root, "lineageTag")
 
     display_folder = folder_node.value.strip().strip("'\"") if folder_node else ""
     format_string = fmt_node.value.strip().strip("'\"") if fmt_node else ""
     description = desc_node.value.strip().strip("'\"") if desc_node else ""
+    is_hidden = hidden_node is not None
+    lineage_tag = lineage_node.value.strip().strip("'\"") if lineage_node else ""
 
     return Measure(
         name=name,
@@ -499,6 +511,8 @@ def _parse_measure(block: str) -> Optional[Measure]:
         display_folder=display_folder,
         format_string=format_string,
         description=description,
+        is_hidden=is_hidden,
+        lineage_tag=lineage_tag,
     )
 
 

@@ -36,6 +36,11 @@ table fact-sales
 
 		annotation SummarizationSetBy = Automatic
 
+	measure '_Row Count Helper' = COUNTROWS('fact-sales')
+		isHidden
+		lineageTag: 00000003-0000-0000-0000-000000000099
+		formatString: #,##0
+
 	partition fact-sales = m
 		mode: import
 		queryGroup: 'Fact Tables'
