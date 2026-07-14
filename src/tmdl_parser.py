@@ -23,6 +23,7 @@ class Column:
     is_calculated: bool = False
     dax_expression: str = ""
     is_hidden: bool = False
+    format_string: str = ""
 
 
 @dataclass
@@ -376,8 +377,11 @@ def _parse_column(block: str) -> Optional[Column]:
             dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
 
         is_hidden = _find_child(root, "isHidden") is not None
+        fmt_node_calc = _find_child(root, "formatString")
+        format_string_calc = fmt_node_calc.value.strip().strip("'\"") if fmt_node_calc else ""
         return Column(name=name, data_type="calculated", is_calculated=True,
-                      dax_expression=dax, is_hidden=is_hidden)
+                      dax_expression=dax, is_hidden=is_hidden,
+                      format_string=format_string_calc)
 
     # Plain column: column 'Name' or column "Name" or column barename
     plain = re.match(r"column\s+'(.+?)'$|column\s+\"(.+?)\"$|column\s+(\S+)$", header)
@@ -391,10 +395,13 @@ def _parse_column(block: str) -> Optional[Column]:
         dt_node = _find_child(root, "dataType")
         data_type = dt_node.value if dt_node else "unknown"
         is_hidden = _find_child(root, "isHidden") is not None
+        fmt_node_plain = _find_child(root, "formatString")
+        format_string_plain = fmt_node_plain.value.strip().strip("'\"") if fmt_node_plain else ""
         return Column(
             name=name,
             data_type=data_type,
             is_hidden=is_hidden,
+            format_string=format_string_plain,
         )
     return None
 

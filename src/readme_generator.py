@@ -313,6 +313,9 @@ def _data_sources_section(
                 label    = "—"
             lines.append(f"| `{t.name}` | {src_type} | {label} |")
         lines.append("")
+        staging_fmt = _column_format_string_inventory(staging_tables, heading="Not Loaded Table Format Strings Used")
+        if staging_fmt:
+            lines.append(staging_fmt)
     else:
         lines += ["### Not Loaded", "", "*None.*", ""]
 
@@ -505,6 +508,65 @@ def _table_details_section(
             lines += ["---", ""]
     else:
         lines += ["*No loaded tables.*", "", "---", ""]
+    lines.append(_column_format_string_inventory(loaded_tables + support_tables))
+    return "\n".join(lines)
+
+
+def _column_format_string_inventory(tables: list[Table], heading: str = "Format Strings Used") -> str:
+    all_columns = [(t.name, c) for t in tables for c in t.columns]
+    if not all_columns:
+        return ""
+
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for table_name, c in all_columns:
+        key = c.format_string.strip() if c.format_string.strip() else "(none)"
+        groups.setdefault(key, []).append((c.name, table_name))
+
+    sorted_groups = sorted(groups.items(), key=lambda x: -len(x[1]))
+    total = len(all_columns)
+    unique = len(groups)
+
+    lines = [
+        "",
+        f"**{heading} ({total} total, {unique} unique)**",
+        "",
+        "| Format String | Count | Columns |",
+        "|---|---|---|",
+    ]
+    for fmt, items in sorted_groups:
+        items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
+        fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
+        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _measure_format_string_inventory(tables: list[Table]) -> str:
+    all_measures = [(t.name, m) for t in tables for m in t.measures]
+    if not all_measures:
+        return ""
+
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for table_name, m in all_measures:
+        key = m.format_string.strip() if m.format_string.strip() else "(none)"
+        groups.setdefault(key, []).append((m.name, table_name))
+
+    sorted_groups = sorted(groups.items(), key=lambda x: -len(x[1]))
+    total = len(all_measures)
+    unique = len(groups)
+
+    lines = [
+        "",
+        f"**Format Strings Used ({total} total, {unique} unique)**",
+        "",
+        "| Format String | Count | Measures |",
+        "|---|---|---|",
+    ]
+    for fmt, items in sorted_groups:
+        items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
+        fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
+        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -534,6 +596,7 @@ def _measures_section(tables: list[Table], include_dax: bool) -> str:
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
 
+    lines.append(_measure_format_string_inventory(tables))
     lines += ["---", ""]
     return "\n".join(lines)
 
@@ -761,6 +824,31 @@ def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") 
     return f"<table{cls}><thead><tr>{th_cells}</tr></thead><tbody>{body_rows}</tbody></table>"
 
 
+def _html_fmt_inventory_table(
+    title: str,
+    groups: list[tuple[str, list[tuple[str, str]]]],
+    total: int,
+    unique: int,
+    col_header: str,
+) -> str:
+    """Render a format string inventory as an HTML table."""
+    parts = [
+        f"<h4>{_esc(title)} ({total} total, {unique} unique)</h4>",
+        _html_table(
+            ["Format String", "Count", col_header],
+            [
+                (
+                    f"<code>{_esc(fmt)}</code>" if fmt != "(none)" else "(none)",
+                    str(len(items)),
+                    ", ".join(f"<code>{_esc(name)}</code> ({_esc(tbl)})" for name, tbl in items),
+                )
+                for fmt, items in groups
+            ],
+        ),
+    ]
+    return "\n".join(parts)
+
+
 def _code(text: str) -> str:
     return f"<code>{_esc(text)}</code>"
 
@@ -818,6 +906,19 @@ def generate_html(
             label    = _source_label(rs) if rs else "-"
             rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
+        # Staging column format string inventory (HTML)
+        staging_col_groups: dict[str, list[tuple[str, str]]] = {}
+        for t in staging:
+            for c in t.columns:
+                key = c.format_string.strip() if c.format_string.strip() else "(none)"
+                staging_col_groups.setdefault(key, []).append((c.name, t.name))
+        if staging_col_groups:
+            staging_col_sorted = sorted(staging_col_groups.items(), key=lambda x: -len(x[1]))
+            staging_col_total = sum(len(v) for v in staging_col_groups.values())
+            staging_col_unique = len(staging_col_groups)
+            body.append(_html_fmt_inventory_table(
+                "Not Loaded Column Format Strings", staging_col_sorted, staging_col_total, staging_col_unique, "Columns"
+            ))
     else:
         body.append('<p class="empty">None.</p>')
 
@@ -880,6 +981,34 @@ def generate_html(
                 for _, m in folders[folder]:
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
+
+    # Measure format string inventory (HTML)
+    if all_measures:
+        meas_groups: dict[str, list[tuple[str, str]]] = {}
+        for tn, m in all_measures:
+            key = m.format_string.strip() if m.format_string.strip() else "(none)"
+            meas_groups.setdefault(key, []).append((m.name, tn))
+        if meas_groups:
+            meas_sorted = sorted(meas_groups.items(), key=lambda x: -len(x[1]))
+            meas_total = sum(len(v) for v in meas_groups.values())
+            meas_unique = len(meas_groups)
+            body.append(_html_fmt_inventory_table(
+                "Measure Format Strings", meas_sorted, meas_total, meas_unique, "Measures"
+            ))
+
+    # Column format string inventory (HTML)
+    col_groups: dict[str, list[tuple[str, str]]] = {}
+    for t in loaded + support:
+        for c in t.columns:
+            key = c.format_string.strip() if c.format_string.strip() else "(none)"
+            col_groups.setdefault(key, []).append((c.name, t.name))
+    if col_groups:
+        col_sorted = sorted(col_groups.items(), key=lambda x: -len(x[1]))
+        col_total = sum(len(v) for v in col_groups.values())
+        col_unique = len(col_groups)
+        body.append(_html_fmt_inventory_table(
+            "Column Format Strings", col_sorted, col_total, col_unique, "Columns"
+        ))
 
     body.append('<h2>4. Relationships</h2>')
     visible_rels = [
