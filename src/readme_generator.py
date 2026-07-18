@@ -771,12 +771,15 @@ def _statistics_section(
     def names(lst):
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "—"
 
+    hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
+
     lines = [
         "## 7. Model Statistics",
         "",
         "| Category | Count | Items |",
         "|---|---|---|",
         f"| Loaded Tables | {len(loaded_tables)} | {names(loaded_tables)} |",
+        f"| Hidden Tables | {len(hidden_tables)} | {names(hidden_tables)} |",
         f"| Calculated Tables | {len(calc)} | {names(calc)} |",
         f"| Field Parameters | {len(fp)} | {names(fp)} |",
         f"| Measures-Only Tables | {len(mo)} | {names(mo)} |",
@@ -913,6 +916,8 @@ def generate_html(
     loaded  = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging = [t for t in model.tables if not t.is_loaded]
+    loaded_visible = [t for t in loaded if not t.is_hidden]
+    loaded_hidden  = [t for t in loaded if t.is_hidden]
 
     body = [f'<div class="container">',
             f'<h1>{_esc(report_name)}</h1>',
@@ -927,10 +932,10 @@ def generate_html(
     ], "overview-table"))
 
     body.append('<h2>1. Data Sources</h2>')
-    body.append(f'<p>{_esc(_model_summary(loaded, staging, support, model))}</p>')
-    if loaded:
+    body.append(f'<p>{_esc(_model_summary(loaded_visible, staging, support, model))}</p>')
+    if loaded_visible:
         rows = []
-        for t in loaded:
+        for t in loaded_visible:
             rs = get_table_source(t, resolved)
             src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
@@ -967,7 +972,7 @@ def generate_html(
 
     body.append('<h2>2. Table Details</h2>')
     calc_groups = [t for t in support if t.table_type == "calc_group"]
-    for t in loaded + calc_groups:
+    for t in loaded_visible + calc_groups:
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
         if rs:
@@ -1022,6 +1027,40 @@ def generate_html(
                 for m in visible_measures:
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
+
+    # ---- 2b. Hidden Tables (only if any) ----
+    if loaded_hidden:
+        body.append('<h2>2b. Hidden Tables</h2>')
+        for t in loaded_hidden:
+            body.append(f'<h3>{_code(t.name)}</h3>')
+            rs = get_table_source(t, resolved)
+            if rs:
+                body.append(f'<p><strong>Source:</strong> {_esc(_connector_type_label(rs))}</p>')
+            visible_cols = [c for c in t.columns if not c.is_hidden and not c.is_calculated]
+            if visible_cols:
+                body.append('<h4>Columns</h4>')
+                body.append(_html_table(
+                    ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By", "Description"],
+                    [[_code(c.name),
+                      _esc(_dtype(c.data_type)),
+                      _code(c.format_string) if c.format_string else "-",
+                      _esc(c.summarize_by) if c.summarize_by else "-",
+                      _code(c.source_column) if c.source_column else "-",
+                      _code(c.sort_by_column) if c.sort_by_column else "-",
+                      _esc(c.description) if c.description else "-"]
+                     for c in visible_cols]))
+            visible_measures = [m for m in t.measures if not m.is_hidden]
+            if visible_measures:
+                body.append('<h4>Measures</h4>')
+                rows = [[_code(m.name),
+                         _code(m.format_string) if m.format_string else "-",
+                         _esc(m.description) if m.description else "-"]
+                        for m in visible_measures]
+                body.append(_html_table(["Measure", "Format", "Description"], rows))
+                if include_dax:
+                    for m in visible_measures:
+                        body.append(f'<h4>{_code(m.name)}</h4>')
+                        body.append(_pre(m.dax_expression))
 
     body.append('<h2>3. Measures</h2>')
     all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
@@ -1138,7 +1177,8 @@ def generate_html(
     calc_cols = [c for t in model.tables for c in t.columns if c.is_calculated]
     def _names(lst): return _RawHtml(", ".join(_code(t.name) for t in lst)) if lst else "-"
     body.append(_html_table(["Category", "Count", "Items"], [
-        ["Loaded Tables",        str(len(loaded)),               _names(loaded)],
+        ["Loaded Tables",        str(len(loaded_visible)),       _names(loaded_visible)],
+        ["Hidden Tables",        str(len(loaded_hidden)),        _names(loaded_hidden)],
         ["Calculated Tables",    str(len(calc)),                 _names(calc)],
         ["Field Parameters",     str(len(fp)),                   _names(fp)],
         ["Measures-Only Tables", str(len(mo)),                   _names(mo)],
@@ -1179,23 +1219,33 @@ def generate_readme(
     loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging  = [t for t in model.tables if not t.is_loaded]
+    loaded_visible = [t for t in loaded if not t.is_hidden]
+    loaded_hidden  = [t for t in loaded if t.is_hidden]
 
     sections = [
         f"# {report_name}\n",
         _overview_section(config),
-        _data_sources_section(loaded, staging, support, resolved, model),
-        _table_details_section(loaded, support, resolved, include_dax),
+        _data_sources_section(loaded_visible, staging, support, resolved, model),
+        _table_details_section(loaded_visible, support, resolved, include_dax),
         _measures_section(model.tables, include_dax),
         _relationships_section(model),
         _security_roles_section(model),
         _m_parameters_section(model),
     ]
 
+    # ---- 2b. Hidden Tables (only if any) ----
+    if loaded_hidden:
+        hidden_lines = ["## 2b. Hidden Tables", ""]
+        for t in loaded_hidden:
+            hidden_lines.append(_table_detail_block(t, resolved, include_dax))
+            hidden_lines += ["---", ""]
+        sections.append("\n".join(hidden_lines))
+
     unresolved = _unresolved_section(resolved)
     if unresolved:
         sections.append(unresolved)
 
-    sections.append(_statistics_section(model, loaded, support, staging))
+    sections.append(_statistics_section(model, loaded_visible, support, staging))
 
     today = date.today().strftime("%d %B %Y")
     sections.append(f"*Generated by tmdl-lens · {today}*\n")

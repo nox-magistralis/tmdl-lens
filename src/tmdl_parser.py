@@ -164,6 +164,8 @@ class Table:
     source_ref: str = ""
     is_hidden: bool = False
     is_loaded: bool = True
+    lineage_tag: str = ""
+    description: str = ""
     columns: list = field(default_factory=list)
     measures: list = field(default_factory=list)
     calculation_items: list = field(default_factory=list)
@@ -963,17 +965,36 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
 
-    for raw_line in content.split("\n"):
-        line = raw_line.strip()
-        if not line or line.startswith("//"):
+    lines = content.split("\n")
+    header_line = None
+    header_indent = 0
+    for i, raw_line in enumerate(lines):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("//"):
             continue
-        name_match = re.match(r"^table\s+(.+)$", line)
+        name_match = re.match(r"^table\s+(.+)$", stripped)
         if not name_match:
             return None
         name = name_match.group(1).strip().strip("'\"")
+        header_line = stripped
+        header_indent = len(raw_line) - len(raw_line.lstrip("\t "))
+        header_index = i
         break
     else:
         return None
+
+    # Tree-parse the table header's direct children (indent 0 -> indent 1)
+    children, _ = _parse_tree(lines, header_index + 1, header_indent)
+    table_root = TmdlNode(key="", children=children)
+
+    is_hidden   = _find_child(table_root, "isHidden") is not None
+    lineage_tag = ""
+    lt_node = _find_child(table_root, "lineageTag")
+    if lt_node:
+        lineage_tag = lt_node.value.strip().strip("'\"")
+
+    comment_map = _extract_leading_comments(content)
+    description = comment_map.get(header_line, "")
 
     qg = re.search(r"queryGroup:\s*'?([^'\n]+)'?", content)
     query_group = qg.group(1).strip().strip("'\"") if qg else ""
@@ -988,7 +1009,6 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     result_type = rt_m.group(1).strip() if rt_m else ""
 
     table_type = _classify_table(name, partition_type, content)
-    is_hidden  = bool(re.search(r"changedProperty\s*=\s*IsHidden", content))
     is_loaded  = "TabularEditor_EnableLoad = false" not in content
     source_ref = _extract_partition_source_ref(content) if partition_type == "m" else ""
 
@@ -1004,8 +1024,6 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     inline_source = None
     if partition_type == "m" and not source_ref:
         inline_source = _classify_m_content(content, name, result_type)
-
-    comment_map = _extract_leading_comments(content)
 
     columns = []
     for b in _extract_blocks(content, "column "):
@@ -1030,6 +1048,8 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
         source_ref=source_ref,
         is_hidden=is_hidden,
         is_loaded=is_loaded,
+        lineage_tag=lineage_tag,
+        description=description,
         columns=columns,
         measures=measures,
         calculation_items=calculation_items,
