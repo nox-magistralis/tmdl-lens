@@ -41,6 +41,12 @@ table fact-sales
 		lineageTag: 00000003-0000-0000-0000-000000000099
 		formatString: #,##0
 
+	measure 'Order Fulfillment Summary' = [Open Order Count] & " open, status: " & SELECTEDVALUE('helper-order-lookup'[status_code])
+		lineageTag: 00000003-0000-0000-0000-000000000098
+		formatString: 0
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
 	partition fact-sales = m
 		mode: import
 		queryGroup: 'Fact Tables'

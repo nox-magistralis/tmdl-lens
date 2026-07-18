@@ -5,6 +5,7 @@ Takes a parsed SemanticModel and resolved sources dict and produces
 a structured README.md for each Power BI report.
 """
 
+import re
 from datetime import date
 from src.tmdl_parser import SemanticModel, Table
 from src.source_resolver import ResolvedSource, get_table_source
@@ -327,6 +328,9 @@ def _table_detail_block(
     table: Table,
     resolved: dict[str, ResolvedSource],
     include_dax: bool,
+    tables_by_name: dict | None = None,
+    hidden_measures_map: dict | None = None,
+    hidden_columns_map: dict | None = None,
 ) -> str:
     lines = [f"### `{table.name}`", ""]
 
@@ -482,6 +486,15 @@ def _table_detail_block(
         for col in calc_cols:
             if include_dax and col.dax_expression:
                 lines += [f"- **`{col.name}`**", "  ```dax", f"  {col.dax_expression}", "  ```"]
+                if tables_by_name is not None:
+                    note = _hidden_reference_note(
+                        _find_hidden_references(
+                            col.dax_expression, tables_by_name,
+                            hidden_measures_map or {}, hidden_columns_map or {}
+                        )
+                    )
+                    if note:
+                        lines += ["", f"  {note}"]
             else:
                 lines.append(f"- `{col.name}`")
         lines.append("")
@@ -512,6 +525,15 @@ def _table_detail_block(
                 if not m.dax_expression.strip():
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
+                if tables_by_name is not None:
+                    note = _hidden_reference_note(
+                        _find_hidden_references(
+                            m.dax_expression, tables_by_name,
+                            hidden_measures_map or {}, hidden_columns_map or {}
+                        )
+                    )
+                    if note:
+                        lines += ["", note, ""]
 
     if hidden_measures:
         details = ", ".join(f"`{m.name}`" for m in hidden_measures)
@@ -525,13 +547,16 @@ def _table_details_section(
     support_tables: list[Table],
     resolved: dict[str, ResolvedSource],
     include_dax: bool,
+    tables_by_name: dict | None = None,
+    hidden_measures_map: dict | None = None,
+    hidden_columns_map: dict | None = None,
 ) -> str:
     lines = ["## 2. Table Details", ""]
     calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
     all_tables = loaded_tables + calc_groups
     if all_tables:
         for t in all_tables:
-            lines.append(_table_detail_block(t, resolved, include_dax))
+            lines.append(_table_detail_block(t, resolved, include_dax, tables_by_name, hidden_measures_map, hidden_columns_map))
             lines += ["---", ""]
     else:
         lines += ["*No loaded tables.*", "", "---", ""]
@@ -682,6 +707,164 @@ def _build_param_usage_map(model: SemanticModel) -> dict[str, list[str]]:
                     if expr.name not in usage[pname]:
                         usage[pname].append(expr.name)
     return usage
+
+
+# ---------------------------------------------------------------------------
+# Stage 4b — hidden cross-reference detection
+# ---------------------------------------------------------------------------
+
+def _build_hidden_reference_map(model: SemanticModel) -> tuple[dict, dict, dict]:
+    """Build lookup dicts for hidden-object detection from DAX expressions.
+
+    Returns (tables_by_name, hidden_measures, hidden_columns):
+      tables_by_name  — {table_name: Table} for every table in the model.
+      hidden_measures — {measure_name: table_name_or_list} — for each measure
+                        whose own is_hidden is True or whose owning table is
+                        hidden.  If the same measure name appears on multiple
+                        tables the value is a list of all owning tables (the
+                        ambiguity case).
+      hidden_columns  — {(table_name, column_name): True} — for each column
+                        whose own is_hidden is True or whose owning table is
+                        hidden.
+    """
+    tables_by_name: dict[str, Table] = {}
+    hidden_measures: dict = {}
+    hidden_columns: dict[tuple[str, str], bool] = {}
+
+    for table in model.tables:
+        tables_by_name[table.name] = table
+        table_hidden = table.is_hidden
+
+        for m in table.measures:
+            if m.is_hidden or table_hidden:
+                if m.name in hidden_measures:
+                    existing = hidden_measures[m.name]
+                    if isinstance(existing, list):
+                        if table.name not in existing:
+                            existing.append(table.name)
+                    else:
+                        if existing != table.name:
+                            hidden_measures[m.name] = [existing, table.name]
+                    # if same table appears twice, no change needed
+                else:
+                    hidden_measures[m.name] = table.name
+
+        for c in table.columns:
+            if c.is_hidden or table_hidden:
+                hidden_columns[(table.name, c.name)] = True
+
+    return tables_by_name, hidden_measures, hidden_columns
+
+
+def _find_hidden_references(
+    dax_expression: str,
+    tables_by_name: dict,
+    hidden_measures: dict,
+    hidden_columns: dict,
+) -> list[tuple[str, str]]:
+    """Scan a single DAX expression for references to hidden objects.
+
+    Returns a list of (display_name, owning_table) tuples, de-duplicated,
+    in encounter order.  Skips references that are ambiguous (same bare
+    measure name on multiple tables) rather than guessing.
+    """
+    dax = dax_expression
+
+    # Strip content inside double-quoted string literals to avoid false
+    # matches on bracket characters inside literal strings.
+    # Replace string contents with spaces (preserving length) so positions
+    # of non-string tokens are unchanged relative to the original.
+    cleaned = []
+    i = 0
+    while i < len(dax):
+        if dax[i] == '"':
+            j = i + 1
+            while j < len(dax):
+                if dax[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            # Replace string content (including quotes) with spaces
+            cleaned.append(" " * (j - i))
+            i = j
+        else:
+            cleaned.append(dax[i])
+            i += 1
+    stripped = "".join(cleaned)
+
+    results: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    # Pattern 1: Column references — 'TableName'[ColumnName] or TableName[ColumnName]
+    # Matches optional single-quoted or bare table name, then [ColumnName]
+    col_pattern = re.compile(
+        r"(?:'([^']+)'|([A-Za-z_]\w*)) \[ ([A-Za-z_][A-Za-z0-9_. ]*) \]",
+        re.VERBOSE,
+    )
+    for m in col_pattern.finditer(stripped):
+        table_name = m.group(1) if m.group(1) else m.group(2)
+        col_name = m.group(3).strip()
+        # Verify the reference points to a real hidden object
+        tbl = tables_by_name.get(table_name)
+        if tbl is None:
+            continue
+        is_hidden_ref = False
+        if tbl.is_hidden:
+            is_hidden_ref = True
+        elif (table_name, col_name) in hidden_columns:
+            is_hidden_ref = True
+        if is_hidden_ref:
+            display = f"{table_name}[{col_name}]"
+            key = (display, table_name)
+            if key not in seen:
+                seen.add(key)
+                results.append(key)
+
+    # Pattern 2: Bare measure references — [MeasureName]
+    # Must NOT be preceded by a table name (closing quote, letter, or ])
+    # Find all [MeasureName] tokens via regex
+    meas_pattern = re.compile(r"\[ ([A-Za-z_][A-Za-z0-9_. ()+-]*) \]", re.VERBOSE)
+    for m in meas_pattern.finditer(stripped):
+        start = m.start()
+        # Check that this is a bare reference — not preceded by a closing
+        # single-quote, closing double-quote, or alphanumeric character
+        # (which would indicate a table-qualified column reference).
+        if start > 0:
+            prev_char = stripped[start - 1]
+            if prev_char not in (" ", "\t", "\n", "\r", "(", ",", "=", "+", "-", "*", "/", ">", "<", "!", "&", "|", "~", "^", "%"):
+                # This bracket is attached to something — could be table[col]
+                # already caught by Pattern 1, or part of another syntax.
+                # Skip it.
+                continue
+        meas_name = m.group(1).strip()
+        if meas_name not in hidden_measures:
+            continue
+        entry = hidden_measures[meas_name]
+        if isinstance(entry, list):
+            # Ambiguous — multiple tables have a hidden measure with this name.
+            # Skip rather than guessing.
+            continue
+        table_name = entry
+        display = f"[{meas_name}]"
+        key = (display, table_name)
+        if key not in seen:
+            seen.add(key)
+            results.append(key)
+
+    return results
+
+
+def _hidden_reference_note(refs: list[tuple[str, str]]) -> str:
+    """Render the hidden-reference warning line for a list of refs.
+
+    Returns a single Markdown line starting with ⚠, or "" if empty.
+    """
+    if not refs:
+        return ""
+    parts = []
+    for display_name, owning_table in refs:
+        parts.append(f"`{display_name}` (in `{owning_table}`)")
+    return "⚠ References hidden: " + ", ".join(parts)
 
 
 def _security_roles_section(model: SemanticModel) -> str:
@@ -919,6 +1102,8 @@ def generate_html(
     loaded_visible = [t for t in loaded if not t.is_hidden]
     loaded_hidden  = [t for t in loaded if t.is_hidden]
 
+    ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
+
     body = [f'<div class="container">',
             f'<h1>{_esc(report_name)}</h1>',
             f'<div class="subtitle">Generated by tmdl-lens &middot; {today}</div>']
@@ -1027,6 +1212,12 @@ def generate_html(
                 for m in visible_measures:
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
+                    refs = _find_hidden_references(
+                        m.dax_expression, ref_tables, ref_measures, ref_columns
+                    )
+                    if refs:
+                        parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
+                        body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
 
     # ---- 2b. Hidden Tables (only if any) ----
     if loaded_hidden:
@@ -1061,6 +1252,12 @@ def generate_html(
                     for m in visible_measures:
                         body.append(f'<h4>{_code(m.name)}</h4>')
                         body.append(_pre(m.dax_expression))
+                        refs = _find_hidden_references(
+                            m.dax_expression, ref_tables, ref_measures, ref_columns
+                        )
+                        if refs:
+                            parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
+                            body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
 
     body.append('<h2>3. Measures</h2>')
     all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
@@ -1222,11 +1419,13 @@ def generate_readme(
     loaded_visible = [t for t in loaded if not t.is_hidden]
     loaded_hidden  = [t for t in loaded if t.is_hidden]
 
+    ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
+
     sections = [
         f"# {report_name}\n",
         _overview_section(config),
         _data_sources_section(loaded_visible, staging, support, resolved, model),
-        _table_details_section(loaded_visible, support, resolved, include_dax),
+        _table_details_section(loaded_visible, support, resolved, include_dax, ref_tables, ref_measures, ref_columns),
         _measures_section(model.tables, include_dax),
         _relationships_section(model),
         _security_roles_section(model),
@@ -1237,7 +1436,7 @@ def generate_readme(
     if loaded_hidden:
         hidden_lines = ["## 2b. Hidden Tables", ""]
         for t in loaded_hidden:
-            hidden_lines.append(_table_detail_block(t, resolved, include_dax))
+            hidden_lines.append(_table_detail_block(t, resolved, include_dax, ref_tables, ref_measures, ref_columns))
             hidden_lines += ["---", ""]
         sections.append("\n".join(hidden_lines))
 
