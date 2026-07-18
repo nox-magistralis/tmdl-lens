@@ -835,19 +835,35 @@ pre code { background: none; color: inherit; padding: 0; }
 
 
 def _esc(text: str) -> str:
+    a = chr(38)  # &
     return (
         str(text)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        .replace(chr(38), a + "amp;")
+        .replace(chr(60), a + "lt;")
+        .replace(chr(62), a + "gt;")
+        .replace(chr(34), a + "quot;")
     )
+
+
+class _RawHtml(str):
+    """A string that is already safe, fully-built HTML. _html_table and
+    _html_fmt_inventory_table skip escaping for cells of this type."""
+    pass
 
 
 def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") -> str:
     cls = f' class="{css_class}"' if css_class else ""
     th_cells = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body_rows = "".join(f"<tr>{''.join(f'<td>{_esc(cell)}</td>' for cell in row)}</tr>" for row in rows)
+
+    def render_cell(cell) -> str:
+        if isinstance(cell, _RawHtml):
+            return cell
+        return _esc(cell)
+
+    body_rows = "".join(
+        f"<tr>{''.join(f'<td>{render_cell(cell)}</td>' for cell in row)}</tr>"
+        for row in rows
+    )
     return f"<table{cls}><thead><tr>{th_cells}</tr></thead><tbody>{body_rows}</tbody></table>"
 
 
@@ -865,9 +881,9 @@ def _html_fmt_inventory_table(
             ["Format String", "Count", col_header],
             [
                 (
-                    f"<code>{_esc(fmt)}</code>" if fmt != "(none)" else "(none)",
+                    _RawHtml(f"<code>{_esc(fmt)}</code>") if fmt != "(none)" else "(none)",
                     str(len(items)),
-                    ", ".join(f"<code>{_esc(name)}</code> ({_esc(tbl)})" for name, tbl in items),
+                    _RawHtml(", ".join(f"<code>{_esc(name)}</code> ({_esc(tbl)})" for name, tbl in items)),
                 )
                 for fmt, items in groups
             ],
@@ -876,12 +892,12 @@ def _html_fmt_inventory_table(
     return "\n".join(parts)
 
 
-def _code(text: str) -> str:
-    return f"<code>{_esc(text)}</code>"
+def _code(text: str) -> _RawHtml:
+    return _RawHtml(f"<code>{_esc(text)}</code>")
 
 
-def _pre(text: str) -> str:
-    return f"<pre><code>{_esc(text)}</code></pre>"
+def _pre(text: str) -> _RawHtml:
+    return _RawHtml(f"<pre><code>{_esc(text)}</code></pre>")
 
 
 def generate_html(
@@ -1101,7 +1117,7 @@ def generate_html(
     else:
         usage_map = _build_param_usage_map(model)
         rows = [[_code(p.name), _esc(p.param_type), _code(p.value),
-                 ", ".join(_code(e) for e in usage_map.get(p.name, [])) or "-"]
+                 _RawHtml(", ".join(_code(e) for e in usage_map.get(p.name, []))) or "-"]
                 for p in model.m_parameters]
         body.append(_html_table(["Parameter", "Type", "Value", "Used By"], rows))
         body.append('<p class="section-note">Only direct parameter references in connector calls are shown.</p>')
@@ -1120,7 +1136,7 @@ def generate_html(
     cg        = [t for t in support if t.table_type == "calc_group"]
     all_meas  = [m for t in model.tables for m in t.measures]
     calc_cols = [c for t in model.tables for c in t.columns if c.is_calculated]
-    def _names(lst): return ", ".join(_code(t.name) for t in lst) if lst else "-"
+    def _names(lst): return _RawHtml(", ".join(_code(t.name) for t in lst)) if lst else "-"
     body.append(_html_table(["Category", "Count", "Items"], [
         ["Loaded Tables",        str(len(loaded)),               _names(loaded)],
         ["Calculated Tables",    str(len(calc)),                 _names(calc)],
