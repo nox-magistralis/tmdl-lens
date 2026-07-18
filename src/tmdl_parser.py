@@ -30,6 +30,7 @@ class Column:
     data_category: str = ""
     is_key: bool = False
     lineage_tag: str = ""
+    description: str = ""
 
 
 @dataclass
@@ -254,6 +255,53 @@ def _extract_blocks(text: str, keyword: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Leading /// comment extractor
+# ---------------------------------------------------------------------------
+
+def _extract_leading_comments(content: str) -> dict:
+    """
+    Pre-scan the full table file content for '///' doc-comment lines and
+    associate each /// block with the column/measure header immediately
+    following it (at the same indent, no blank lines between). Returns a
+    dict mapping stripped header line -> joined description text.
+    """
+    mapping = {}
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        # Detect start of a /// comment block
+        if stripped.startswith("///"):
+            indent = len(line) - len(line.lstrip("\t "))
+            comments = []
+            # Collect all consecutive /// lines at the same indent
+            while i < len(lines):
+                s = lines[i].strip()
+                cur_indent = len(lines[i]) - len(lines[i].lstrip("\t "))
+                if s.startswith("///") and cur_indent == indent:
+                    comments.append(s[len("///"):].lstrip())
+                    i += 1
+                else:
+                    break
+            # Skip blank lines (not expected in real TMDL, but tolerate them)
+            while i < len(lines) and not lines[i].strip():
+                i += 1
+            # The next non-blank line at the same indent is the target header
+            if i < len(lines):
+                next_indent = len(lines[i]) - len(lines[i].lstrip("\t "))
+                if next_indent == indent:
+                    header = lines[i].strip()
+                    mapping[header] = " ".join(comments)
+                    continue  # do NOT advance i — let the outer loop handle it
+            # If no header followed, don't advance — let outer loop continue
+            continue
+        else:
+            i += 1
+    return mapping
+
+
+# ---------------------------------------------------------------------------
 # Tree node parser — shared indentation-tree infrastructure
 # ---------------------------------------------------------------------------
 
@@ -364,7 +412,7 @@ _COL_PROP_STOP = re.compile(
 # Column parser
 # ---------------------------------------------------------------------------
 
-def _parse_column(block: str) -> Optional[Column]:
+def _parse_column(block: str, description: str = "") -> Optional[Column]:
     lines = block.split("\n")
     header = lines[0].strip()
 
@@ -413,7 +461,8 @@ def _parse_column(block: str) -> Optional[Column]:
                       sort_by_column=sort_by_column_calc,
                       data_category=data_category_calc,
                       is_key=is_key_calc,
-                      lineage_tag=lineage_tag_calc)
+                      lineage_tag=lineage_tag_calc,
+                      description=description)
 
     # Plain column: column 'Name' or column "Name" or column barename
     plain = re.match(r"column\s+'(.+?)'$|column\s+\"(.+?)\"$|column\s+(\S+)$", header)
@@ -451,6 +500,7 @@ def _parse_column(block: str) -> Optional[Column]:
             data_category=data_category_plain,
             is_key=is_key_plain,
             lineage_tag=lineage_tag_plain,
+            description=description,
         )
     return None
 
@@ -459,7 +509,7 @@ def _parse_column(block: str) -> Optional[Column]:
 # Measure parser
 # ---------------------------------------------------------------------------
 
-def _parse_measure(block: str) -> Optional[Measure]:
+def _parse_measure(block: str, leading_description: str = "") -> Optional[Measure]:
     lines = block.split("\n")
     header = lines[0].strip()
     m = re.match(r"measure\s+'(.+?)'\s*=|measure\s+\"(.+?)\"\s*=", header)
@@ -501,7 +551,9 @@ def _parse_measure(block: str) -> Optional[Measure]:
 
     display_folder = folder_node.value.strip().strip("'\"") if folder_node else ""
     format_string = fmt_node.value.strip().strip("'\"") if fmt_node else ""
-    description = desc_node.value.strip().strip("'\"") if desc_node else ""
+    # Precedence: /// comment wins over description: property
+    prop_description = desc_node.value.strip().strip("'\"") if desc_node else ""
+    description = leading_description if leading_description else prop_description
     is_hidden = hidden_node is not None
     lineage_tag = lineage_node.value.strip().strip("'\"") if lineage_node else ""
 
@@ -953,8 +1005,21 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     if partition_type == "m" and not source_ref:
         inline_source = _classify_m_content(content, name, result_type)
 
-    columns           = [c for b in _extract_blocks(content, "column ")  for c in [_parse_column(b)]  if c]
-    measures          = [m for b in _extract_blocks(content, "measure ")  for m in [_parse_measure(b)] if m]
+    comment_map = _extract_leading_comments(content)
+
+    columns = []
+    for b in _extract_blocks(content, "column "):
+        header = b.split("\n")[0].strip()
+        col = _parse_column(b, description=comment_map.get(header, ""))
+        if col:
+            columns.append(col)
+
+    measures = []
+    for b in _extract_blocks(content, "measure "):
+        header = b.split("\n")[0].strip()
+        m = _parse_measure(b, leading_description=comment_map.get(header, ""))
+        if m:
+            measures.append(m)
     calculation_items = _parse_calculation_items(content) if table_type == "calc_group" else []
 
     return Table(

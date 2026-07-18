@@ -448,16 +448,17 @@ def _table_detail_block(
     if visible_cols:
         lines += [
             "**Columns**", "",
-            "| Column | Type | Format | Summarize By | Source Column | Sort By |",
-            "|---|---|---|---|---|---|",
+            "| Column | Type | Format | Summarize By | Source Column | Sort By | Description |",
+            "|---|---|---|---|---|---|---|",
         ]
         for col in visible_cols:
             fmt     = f"`{col.format_string}`" if col.format_string else "-"
             summ    = col.summarize_by or "-"
             src_col = f"`{col.source_column}`" if col.source_column else "-"
             sort_by = f"`{col.sort_by_column}`" if col.sort_by_column else "-"
+            desc    = col.description or "—"
             lines.append(
-                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} |"
+                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} |"
             )
         lines.append("")
 
@@ -965,13 +966,14 @@ def generate_html(
         if visible_cols:
             body.append('<h4>Columns</h4>')
             body.append(_html_table(
-                ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By"],
+                ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By", "Description"],
                 [[_code(c.name),
                   _esc(_dtype(c.data_type)),
                   _code(c.format_string) if c.format_string else "-",
                   _esc(c.summarize_by) if c.summarize_by else "-",
                   _code(c.source_column) if c.source_column else "-",
-                  _code(c.sort_by_column) if c.sort_by_column else "-"]
+                  _code(c.sort_by_column) if c.sort_by_column else "-",
+                  _esc(c.description) if c.description else "-"]
                  for c in visible_cols]))
             key_cols = [c.name for c in visible_cols if c.is_key]
             if key_cols:

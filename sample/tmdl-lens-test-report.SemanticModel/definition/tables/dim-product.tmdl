@@ -2,6 +2,7 @@
 table dim-product
 	lineageTag: 00000002-0000-0000-0000-000000000003
 
+	/// Unique identifier for the product, sourced from the product dimension feed
 	column product_id
 		dataType: string
 		lineageTag: 00000003-0000-0000-0000-000000000020
@@ -18,6 +19,7 @@ table dim-product
 
 		annotation SummarizationSetBy = Automatic
 
+	/// Product category grouping used for merchandising reports
 	column category
 		dataType: string
 		lineageTag: 00000003-0000-0000-0000-000000000022
@@ -31,6 +33,7 @@ table dim-product
 		lineageTag: 00000003-0000-0000-0000-000000000023
 		summarizeBy: sum
 		sourceColumn: unit_price
+		description: List price before discounts, in local currency
 
 		annotation SummarizationSetBy = Automatic
 
