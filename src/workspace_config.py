@@ -24,7 +24,7 @@ DEFAULTS = {
 # Keys allowed at the top level and inside per-report overrides.
 # Used during validation to catch wrong files or hand-edited mistakes.
 _TOP_LEVEL_KEYS    = {"owner", "team", "refresh_schedule", "reports"}
-_PER_REPORT_KEYS   = {"owner", "team", "refresh_schedule"}
+_PER_REPORT_KEYS   = {"owner", "team", "refresh_schedule", "show_hidden"}
 
 
 def path(folder: str) -> str:
@@ -119,6 +119,7 @@ def merge_report(ws_config: dict, report_name: str) -> dict:
         "owner":            ws_config.get("owner", ""),
         "team":             ws_config.get("team", ""),
         "refresh_schedule": ws_config.get("refresh_schedule", ""),
+        "show_hidden":      True,
     }
     overrides = ws_config.get("reports", {}).get(report_name, {})
     merged.update({k: v for k, v in overrides.items() if k in _PER_REPORT_KEYS})

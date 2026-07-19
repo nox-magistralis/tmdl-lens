@@ -331,6 +331,7 @@ def _table_detail_block(
     tables_by_name: dict | None = None,
     hidden_measures_map: dict | None = None,
     hidden_columns_map: dict | None = None,
+    show_hidden: bool = True,
 ) -> str:
     lines = [f"### `{table.name}`", ""]
 
@@ -446,39 +447,42 @@ def _table_detail_block(
     if not table.is_loaded:
         lines += ["", "> ⚠ Not loaded (`enableLoad = false`)."]
 
+    if table.is_hidden:
+        lines += ["**Hidden:** Yes  "]
+
     lines.append("")
 
-    visible_cols = [c for c in table.columns if not c.is_hidden and not c.is_calculated]
-    if visible_cols:
+    all_cols = [c for c in table.columns if not c.is_calculated]
+    if show_hidden:
+        display_cols = all_cols
+    else:
+        display_cols = [c for c in all_cols if not c.is_hidden]
+    if display_cols:
         lines += [
             "**Columns**", "",
-            "| Column | Type | Format | Summarize By | Source Column | Sort By | Description |",
-            "|---|---|---|---|---|---|---|",
+            "| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |",
+            "|---|---|---|---|---|---|---|---|",
         ]
-        for col in visible_cols:
+        for col in display_cols:
             fmt     = f"`{col.format_string}`" if col.format_string else "-"
             summ    = col.summarize_by or "-"
             src_col = f"`{col.source_column}`" if col.source_column else "-"
             sort_by = f"`{col.sort_by_column}`" if col.sort_by_column else "-"
             desc    = col.description or "—"
+            hidden  = "Hidden" if col.is_hidden else ""
             lines.append(
-                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} |"
+                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} | {hidden} |"
             )
         lines.append("")
 
-        key_cols = [c.name for c in visible_cols if c.is_key]
+        key_cols = [c.name for c in display_cols if c.is_key]
         if key_cols:
             lines += ["**Key Column:** " + ", ".join(f"`{k}`" for k in key_cols) + "  ", ""]
 
-        cat_cols = [(c.name, c.data_category) for c in visible_cols if c.data_category]
+        cat_cols = [(c.name, c.data_category) for c in display_cols if c.data_category]
         if cat_cols:
             parts = [f"`{name}` = {cat}" for name, cat in cat_cols]
             lines += ["**Data Categories:** " + ", ".join(parts) + "  ", ""]
-
-    hidden_cols = [c for c in table.columns if c.is_hidden and not c.is_calculated]
-    if hidden_cols:
-        details = ", ".join(f"`{c.name}`" for c in hidden_cols)
-        lines += [f"**Hidden Columns:** {details}  ", ""]
 
     calc_cols = [c for c in table.columns if c.is_calculated]
     if calc_cols:
@@ -510,18 +514,21 @@ def _table_detail_block(
             for item in table.calculation_items:
                 lines += [f"**`{item.name}`**", "```dax", item.dax_expression, "```", ""]
 
-    visible_measures = [m for m in table.measures if not m.is_hidden]
-    hidden_measures = [m for m in table.measures if m.is_hidden]
+    if show_hidden:
+        display_measures = table.measures[:]
+    else:
+        display_measures = [m for m in table.measures if not m.is_hidden]
 
-    if visible_measures:
-        lines += ["**Measures**", "", "| Measure | Format | Description |", "|---|---|---|"]
-        for m in visible_measures:
-            fmt  = f"`{m.format_string}`" if m.format_string else "—"
-            desc = m.description or "—"
-            lines.append(f"| `{m.name}` | {fmt} | {desc} |")
+    if display_measures:
+        lines += ["**Measures**", "", "| Measure | Format | Description | Hidden |", "|---|---|---|---|"]
+        for m in display_measures:
+            fmt    = f"`{m.format_string}`" if m.format_string else "—"
+            desc   = m.description or "—"
+            hidden = "Hidden" if m.is_hidden else ""
+            lines.append(f"| `{m.name}` | {fmt} | {desc} | {hidden} |")
         if include_dax:
             lines += ["", "**Measure DAX**", ""]
-            for m in visible_measures:
+            for m in display_measures:
                 if not m.dax_expression.strip():
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
@@ -535,10 +542,6 @@ def _table_detail_block(
                     if note:
                         lines += ["", note, ""]
 
-    if hidden_measures:
-        details = ", ".join(f"`{m.name}`" for m in hidden_measures)
-        lines += [f"**Hidden Measures:** {details}  ", ""]
-
     return "\n".join(lines)
 
 
@@ -550,13 +553,17 @@ def _table_details_section(
     tables_by_name: dict | None = None,
     hidden_measures_map: dict | None = None,
     hidden_columns_map: dict | None = None,
+    show_hidden: bool = True,
 ) -> str:
     lines = ["## 2. Table Details", ""]
     calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
-    all_tables = loaded_tables + calc_groups
+    if show_hidden:
+        all_tables = loaded_tables + calc_groups
+    else:
+        all_tables = [t for t in loaded_tables if not t.is_hidden] + calc_groups
     if all_tables:
         for t in all_tables:
-            lines.append(_table_detail_block(t, resolved, include_dax, tables_by_name, hidden_measures_map, hidden_columns_map))
+            lines.append(_table_detail_block(t, resolved, include_dax, tables_by_name, hidden_measures_map, hidden_columns_map, show_hidden))
             lines += ["---", ""]
     else:
         lines += ["*No loaded tables.*", "", "---", ""]
@@ -622,8 +629,11 @@ def _measure_format_string_inventory(tables: list[Table]) -> str:
     return "\n".join(lines)
 
 
-def _measures_section(tables: list[Table], include_dax: bool) -> str:
-    all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
+def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool = True) -> str:
+    if show_hidden:
+        all_measures = [(t.name, m) for t in tables for m in t.measures]
+    else:
+        all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
     lines = ["## 3. Measures", ""]
 
     if not all_measures:
@@ -1093,6 +1103,7 @@ def generate_html(
 ) -> str:
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
+    show_hidden = config.get("show_hidden", True)
     today       = date.today().strftime("%d %B %Y")
 
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
@@ -1157,7 +1168,11 @@ def generate_html(
 
     body.append('<h2>2. Table Details</h2>')
     calc_groups = [t for t in support if t.table_type == "calc_group"]
-    for t in loaded_visible + calc_groups:
+    if show_hidden:
+        table_detail_tables = loaded + calc_groups
+    else:
+        table_detail_tables = loaded_visible + calc_groups
+    for t in table_detail_tables:
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
         if rs:
@@ -1168,28 +1183,54 @@ def generate_html(
             body.append('<p><strong>Source:</strong> Calculated (DAX)</p>')
             if include_dax and t.dax_partition:
                 body.append(_pre(t.dax_partition))
-        visible_cols = [c for c in t.columns if not c.is_hidden and not c.is_calculated]
-        if visible_cols:
+        elif t.table_type == "field_parameter":
+            body.append('<p><strong>Source:</strong> Field Parameter</p>')
+        elif t.table_type == "measures_only":
+            body.append('<p><strong>Source:</strong> Measures only - no data source</p>')
+        if t.is_hidden:
+            body.append('<p><strong>Hidden:</strong> Yes</p>')
+        # Columns
+        if show_hidden:
+            display_cols = [c for c in t.columns if not c.is_calculated]
+        else:
+            display_cols = [c for c in t.columns if not c.is_calculated and not c.is_hidden]
+        if display_cols:
             body.append('<h4>Columns</h4>')
             body.append(_html_table(
-                ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By", "Description"],
+                ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By", "Description", "Hidden"],
                 [[_code(c.name),
                   _esc(_dtype(c.data_type)),
                   _code(c.format_string) if c.format_string else "-",
                   _esc(c.summarize_by) if c.summarize_by else "-",
                   _code(c.source_column) if c.source_column else "-",
                   _code(c.sort_by_column) if c.sort_by_column else "-",
-                  _esc(c.description) if c.description else "-"]
-                 for c in visible_cols]))
-            key_cols = [c.name for c in visible_cols if c.is_key]
+                  _esc(c.description) if c.description else "-",
+                  _esc("Hidden" if c.is_hidden else "")]
+                 for c in display_cols]))
+            key_cols = [c.name for c in display_cols if c.is_key]
             if key_cols:
                 body.append('<p><strong>Key Column:</strong> '
                             + ", ".join(_code(k) for k in key_cols) + '</p>')
-            cat_cols = [(c.name, c.data_category) for c in visible_cols if c.data_category]
+            cat_cols = [(c.name, c.data_category) for c in display_cols if c.data_category]
             if cat_cols:
                 body.append('<p><strong>Data Categories:</strong> '
                             + ", ".join(f"{_code(n)} = {_esc(cat)}" for n, cat in cat_cols)
                             + '</p>')
+        # Calculated columns
+        calc_cols = [c for c in t.columns if c.is_calculated]
+        if calc_cols:
+            body.append('<h4>Calculated Columns</h4>')
+            for col in calc_cols:
+                if include_dax and col.dax_expression:
+                    body.append(f'<p><strong>{_code(col.name)}</strong></p>')
+                    body.append(_pre(col.dax_expression))
+                    refs = _find_hidden_references(
+                        col.dax_expression, ref_tables, ref_measures, ref_columns
+                    )
+                    if refs:
+                        parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
+                        body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
+        # Calculation items
         if t.calculation_items:
             body.append('<h4>Calculation Items</h4>')
             rows = [[_code(i.name), str(i.ordinal),
@@ -1200,16 +1241,21 @@ def generate_html(
                 for item in t.calculation_items:
                     body.append(f'<h4>{_code(item.name)}</h4>')
                     body.append(_pre(item.dax_expression))
-        visible_measures = [m for m in t.measures if not m.is_hidden]
-        if visible_measures:
+        # Measures
+        if show_hidden:
+            display_measures = t.measures[:]
+        else:
+            display_measures = [m for m in t.measures if not m.is_hidden]
+        if display_measures:
             body.append('<h4>Measures</h4>')
             rows = [[_code(m.name),
                      _code(m.format_string) if m.format_string else "-",
-                     _esc(m.description) if m.description else "-"]
-                    for m in visible_measures]
-            body.append(_html_table(["Measure", "Format", "Description"], rows))
+                     _esc(m.description) if m.description else "-",
+                     _esc("Hidden" if m.is_hidden else "")]
+                    for m in display_measures]
+            body.append(_html_table(["Measure", "Format", "Description", "Hidden"], rows))
             if include_dax:
-                for m in visible_measures:
+                for m in display_measures:
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
                     refs = _find_hidden_references(
@@ -1219,48 +1265,11 @@ def generate_html(
                         parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
                         body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
 
-    # ---- 2b. Hidden Tables (only if any) ----
-    if loaded_hidden:
-        body.append('<h2>2b. Hidden Tables</h2>')
-        for t in loaded_hidden:
-            body.append(f'<h3>{_code(t.name)}</h3>')
-            rs = get_table_source(t, resolved)
-            if rs:
-                body.append(f'<p><strong>Source:</strong> {_esc(_connector_type_label(rs))}</p>')
-            visible_cols = [c for c in t.columns if not c.is_hidden and not c.is_calculated]
-            if visible_cols:
-                body.append('<h4>Columns</h4>')
-                body.append(_html_table(
-                    ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By", "Description"],
-                    [[_code(c.name),
-                      _esc(_dtype(c.data_type)),
-                      _code(c.format_string) if c.format_string else "-",
-                      _esc(c.summarize_by) if c.summarize_by else "-",
-                      _code(c.source_column) if c.source_column else "-",
-                      _code(c.sort_by_column) if c.sort_by_column else "-",
-                      _esc(c.description) if c.description else "-"]
-                     for c in visible_cols]))
-            visible_measures = [m for m in t.measures if not m.is_hidden]
-            if visible_measures:
-                body.append('<h4>Measures</h4>')
-                rows = [[_code(m.name),
-                         _code(m.format_string) if m.format_string else "-",
-                         _esc(m.description) if m.description else "-"]
-                        for m in visible_measures]
-                body.append(_html_table(["Measure", "Format", "Description"], rows))
-                if include_dax:
-                    for m in visible_measures:
-                        body.append(f'<h4>{_code(m.name)}</h4>')
-                        body.append(_pre(m.dax_expression))
-                        refs = _find_hidden_references(
-                            m.dax_expression, ref_tables, ref_measures, ref_columns
-                        )
-                        if refs:
-                            parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
-                            body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
-
     body.append('<h2>3. Measures</h2>')
-    all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
+    if show_hidden:
+        all_measures = [(t.name, m) for t in model.tables for m in t.measures]
+    else:
+        all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
     if not all_measures:
         body.append('<p class="empty">No measures defined in this model.</p>')
     else:
@@ -1411,13 +1420,15 @@ def generate_readme(
 ) -> str:
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
+    show_hidden = config.get("show_hidden", True)
 
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging  = [t for t in model.tables if not t.is_loaded]
     loaded_visible = [t for t in loaded if not t.is_hidden]
-    loaded_hidden  = [t for t in loaded if t.is_hidden]
+    # loaded_hidden is no longer used — hidden tables render inline in Table Details.
+    # loaded_visible is still used for Data Sources and Statistics (visible-only).
 
     ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
@@ -1425,20 +1436,12 @@ def generate_readme(
         f"# {report_name}\n",
         _overview_section(config),
         _data_sources_section(loaded_visible, staging, support, resolved, model),
-        _table_details_section(loaded_visible, support, resolved, include_dax, ref_tables, ref_measures, ref_columns),
-        _measures_section(model.tables, include_dax),
+        _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
+        _measures_section(model.tables, include_dax, show_hidden),
         _relationships_section(model),
         _security_roles_section(model),
         _m_parameters_section(model),
     ]
-
-    # ---- 2b. Hidden Tables (only if any) ----
-    if loaded_hidden:
-        hidden_lines = ["## 2b. Hidden Tables", ""]
-        for t in loaded_hidden:
-            hidden_lines.append(_table_detail_block(t, resolved, include_dax, ref_tables, ref_measures, ref_columns))
-            hidden_lines += ["---", ""]
-        sections.append("\n".join(hidden_lines))
 
     unresolved = _unresolved_section(resolved)
     if unresolved:
