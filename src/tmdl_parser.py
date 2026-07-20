@@ -830,7 +830,8 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
         if dsn:
             expr.dsn = dsn.group(1)
 
-    elif function == "Database" and namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake"):
+    elif (function == "Database" and namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana")) \
+            or (namespace == "Snowflake" and function == "Databases"):
         patterns = {
             "Oracle":    r'Oracle\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
             "MySql":     r'MySql\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
@@ -1083,7 +1084,7 @@ def _parse_relationships(filepath: str) -> list:
 
         from_card_m = _find_child(root, "fromCardinality")
         to_card_m   = _find_child(root, "toCardinality")
-        from_card = from_card_m.value.strip() if from_card_m else "one"
+        from_card = from_card_m.value.strip() if from_card_m else "many"
         to_card   = to_card_m.value.strip()   if to_card_m   else "many"
 
         if from_card == "one" and to_card == "many":
