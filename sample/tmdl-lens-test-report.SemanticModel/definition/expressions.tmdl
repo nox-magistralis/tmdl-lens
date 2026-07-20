@@ -323,3 +323,33 @@ expression fnGetDataflowEntity =
 
 	annotation PBI_NavigationStepName = Navigation
 	annotation PBI_ResultType = Function
+
+
+// PATTERN 21: Unmapped connector + Schema/Item navigation (ARCH-03 Pattern A fallback)
+expression source-unmapped-schema-nav =
+		let
+		    Source = DataVault.Contents("https://vault.example.com"),
+		    mart_orders = Source{[Schema="mart", Item="orders_summary"]}[Data]
+		in
+		    mart_orders
+	lineageTag: 00000001-0000-0000-0000-000000000022
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+
+
+// PATTERN 22: Unmapped connector + Name-chain navigation (ARCH-03 Pattern B fallback)
+expression source-unmapped-name-chain =
+		let
+		    Source = CloudMart.Warehouses("acct-01"),
+		    wh = Source{[Name="ANALYTICS"]}[Data],
+		    sch = wh{[Name="REPORTING"]}[Data],
+		    tbl = sch{[Name="DAILY_SALES"]}[Data]
+		in
+		    tbl
+	lineageTag: 00000001-0000-0000-0000-000000000023
+	queryGroup: Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table

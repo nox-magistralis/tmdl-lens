@@ -917,13 +917,17 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
         if match:
             expr.url = match.group(1)
 
-    # Pattern B - Name chain for cloud/platform connectors
-    name_chain_namespaces = {
-        "Lakehouse", "Warehouse", "Databricks", "Snowflake",
-        "GoogleBigQuery", "AzureDataLake", "AzureStorage",
-        "AzureBlobStorage", "Dataverse", "SharePoint", "OData",
-    }
-    if namespace in name_chain_namespaces and not expr.physical_tables:
+    # ARCH-03 - unconditional navigation fallbacks.
+    # Pattern A (Schema/Item) and Pattern B (Name chain) are Power BI's own
+    # navigation syntax, not connector vocabulary - if either appears in the M
+    # code, navigation to a physical table happened, regardless of connector.
+    # Specific branches above remain as label/detail upgraders only; when a
+    # branch already populated physical_tables, these fallbacks do nothing.
+    if not expr.physical_tables:
+        nav_tag = "native_query" if re.search(r'Value\.NativeQuery\s*\(', clean) else "navigation"
+        for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
+            expr.physical_tables.append(PhysicalTableRef(schema=nav.group(1), table=nav.group(2), source=nav_tag))
+    if not expr.physical_tables:
         segments = re.findall(r'\{?\[Name\s*=\s*"([^"]+)"\]\}?\[Data\]', clean)
         if segments:
             last = segments[-1]
