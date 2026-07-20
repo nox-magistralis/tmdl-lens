@@ -28,6 +28,15 @@ table fact-sales
 
 		annotation SummarizationSetBy = Automatic
 
+	column ship_date
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 00000003-0000-0000-0000-000000000005
+		summarizeBy: none
+		sourceColumn: ship_date
+
+		annotation SummarizationSetBy = Automatic
+
 	column amount
 		dataType: double
 		lineageTag: 00000003-0000-0000-0000-000000000004

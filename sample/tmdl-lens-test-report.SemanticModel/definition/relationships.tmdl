@@ -2,8 +2,16 @@ relationship a1000001-0000-0000-0000-000000000001
 	fromColumn: fact-sales.order_date
 	toColumn: 'dim-date'.Date
 	toCardinality: one
+	crossFilteringBehavior: bothDirections
 
 relationship a1000001-0000-0000-0000-000000000002
 	fromColumn: fact-sales.customer_id
 	toColumn: 'dim-product'.product_id
 	toCardinality: one
+
+relationship a1000001-0000-0000-0000-000000000003
+	isActive: false
+	fromColumn: fact-sales.ship_date
+	toColumn: 'dim-date'.Date
+	toCardinality: one
+	securityFilteringBehavior: bothDirections

@@ -52,6 +52,8 @@ class Relationship:
     to_column: str
     cardinality: str = ""
     is_active: bool = True
+    cross_filtering_behavior: str = "automatic"
+    security_filtering_behavior: str = "oneDirection"
 
 
 @dataclass
@@ -1098,6 +1100,12 @@ def _parse_relationships(filepath: str) -> list:
         is_active_node = _find_child(root, "isActive")
         active = not (is_active_node and is_active_node.value.strip() == "false")
 
+        # Add tree lookups for crossFilteringBehavior and securityFilteringBehavior
+        cfb_node = _find_child(root, "crossFilteringBehavior")
+        sfb_node = _find_child(root, "securityFilteringBehavior")
+        cross_filtering = cfb_node.value.strip().strip("'\"") if cfb_node else "automatic"
+        security_filtering = sfb_node.value.strip().strip("'\"") if sfb_node else "oneDirection"
+
         from_parts = from_node.value.strip().rsplit(".", 1)
         to_parts   = to_node.value.strip().rsplit(".", 1)
         if len(from_parts) == 2 and len(to_parts) == 2:
@@ -1108,6 +1116,8 @@ def _parse_relationships(filepath: str) -> list:
                 to_column=to_parts[1].strip().strip("'\""),
                 cardinality=cardinality,
                 is_active=active,
+                cross_filtering_behavior=cross_filtering,
+                security_filtering_behavior=security_filtering,
             ))
     return rels
 

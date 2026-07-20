@@ -680,24 +680,24 @@ def _relationships_section(model: SemanticModel) -> str:
 
     if active:
         lines += [
-            "| From Table | From Column | To Table | To Column | Cardinality |",
-            "|---|---|---|---|---|",
+            "| From Table | From Column | To Table | To Column | Cardinality | Cross Filter | Security Filter |",
+            "|---|---|---|---|---|---|---|",
         ]
         for r in active:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '—'} |"
+                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '—'} | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
             )
         lines.append("")
 
     if inactive:
         lines += [
             "**Inactive Relationships**", "",
-            "| From Table | From Column | To Table | To Column |",
-            "|---|---|---|---|",
+            "| From Table | From Column | To Table | To Column | Cross Filter | Security Filter |",
+            "|---|---|---|---|---|---|",
         ]
         for r in inactive:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` |"
+                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
             )
         lines.append("")
 
@@ -1328,16 +1328,18 @@ def generate_html(
         inactive = [r for r in visible_rels if not r.is_active]
         if active:
             body.append(_html_table(
-                ["From Table", "From Column", "To Table", "To Column", "Cardinality"],
+                ["From Table", "From Column", "To Table", "To Column", "Cardinality", "Cross Filter", "Security Filter"],
                 [[_code(r.from_table), _code(r.from_column),
-                  _code(r.to_table),   _code(r.to_column), _esc(r.cardinality or "-")]
+                  _code(r.to_table),   _code(r.to_column), _esc(r.cardinality or "-"),
+                  _esc(r.cross_filtering_behavior), _esc(r.security_filtering_behavior)]
                  for r in active]))
         if inactive:
             body.append('<h3>Inactive Relationships</h3>')
             body.append(_html_table(
-                ["From Table", "From Column", "To Table", "To Column"],
+                ["From Table", "From Column", "To Table", "To Column", "Cross Filter", "Security Filter"],
                 [[_code(r.from_table), _code(r.from_column),
-                  _code(r.to_table),   _code(r.to_column)]
+                  _code(r.to_table),   _code(r.to_column),
+                  _esc(r.cross_filtering_behavior), _esc(r.security_filtering_behavior)]
                  for r in inactive]))
 
     body.append('<h2>5. Security Roles</h2>')
