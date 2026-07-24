@@ -1,6 +1,8 @@
 # User config and local AI tooling — personal, not committed
 config.json
 .clinerules
+AGENTS.md
+CLAUDE.md
 
 # Throwaway debug scripts
 debug*.py
