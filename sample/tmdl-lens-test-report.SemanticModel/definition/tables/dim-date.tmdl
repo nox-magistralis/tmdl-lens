@@ -48,6 +48,20 @@ table dim-date
 
 		annotation SummarizationSetBy = Automatic
 
+	column 'PriorYearFlag' =
+			IF(
+				YEAR('dim-date'[Date]) = YEAR(TODAY()) - 1,
+				TRUE(),
+				FALSE()
+			)
+		isKey
+		isHidden
+		dataType: boolean
+		lineageTag: 00000003-0000-0000-0000-000000000035
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
 	partition dim-date = calculated
 		mode: import
 		source = CALENDARAUTO()
