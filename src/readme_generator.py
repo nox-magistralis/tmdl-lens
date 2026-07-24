@@ -106,8 +106,7 @@ def _source_label(rs: ResolvedSource) -> str:
     if rs.manual_label:
         return rs.manual_label
     # Non-source types return '-' regardless of unresolved status
-    if rs.source_type in ("scalar_helper", "function_def", "embedded", "hardcoded",
-                           "calc_series", "dynamic"):
+    if rs.source_type in ("scalar_helper", "function_def", "embedded", "hardcoded", "dynamic"):
         return "-"
     if rs.unresolved:
         return rs.unresolved_reason or "Unresolved"
