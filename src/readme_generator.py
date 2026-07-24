@@ -468,6 +468,12 @@ def _table_detail_block(
             fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "—"
             lines.append(f"| `{item.name}` | {item.ordinal} | {fmt} |")
         lines.append("")
+        lines += [
+            "> Calculation items can be applied to any measure at report-build time "
+            "(via `SELECTEDMEASURE()`). TMDL has no static record of which measures "
+            "a given item is actually used with.",
+            "",
+        ]
         if include_dax:
             lines += ["**Item DAX**", ""]
             for item in table.calculation_items:
@@ -1199,6 +1205,7 @@ def generate_html(
                      _code(i.format_string_expression) if i.format_string_expression else "-"]
                     for i in t.calculation_items]
             body.append(_html_table(["Item", "Ordinal", "Format String"], rows))
+            body.append('<p class="section-note">Calculation items can be applied to any measure at report-build time (via <code>SELECTEDMEASURE()</code>). TMDL has no static record of which measures a given item is actually used with.</p>')
             if include_dax:
                 for item in t.calculation_items:
                     body.append(f'<h4>{_code(item.name)}</h4>')
