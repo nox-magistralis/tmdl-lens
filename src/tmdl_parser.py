@@ -183,6 +183,9 @@ class SemanticModel:
     source_expressions: list = field(default_factory=list)
     m_parameters: list = field(default_factory=list)
     security_roles: list = field(default_factory=list)
+    model_culture: str = ""
+    model_data_source_version: str = ""
+    database_compatibility_level: str = ""
 
 
 # Transformation functions — these are NOT sources, ignore them
@@ -1183,6 +1186,49 @@ def _parse_roles(filepath: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Model / database level parser
+# ---------------------------------------------------------------------------
+
+def _parse_model_database(definition_path: str) -> tuple[str, str, str]:
+    """
+    Reads model.tmdl and database.tmdl for the three Overview-level fields
+    in scope for this stage. Returns (culture, data_source_version,
+    compatibility_level) — each "" if the file or property is absent.
+    """
+    culture = ""
+    data_source_version = ""
+    compatibility_level = ""
+
+    model_file = os.path.join(definition_path, "model.tmdl")
+    if os.path.exists(model_file):
+        with open(model_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        lines = content.split("\n")
+        # model header is indent 0, its direct properties are indent 1
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
+        culture_node = _find_child(root, "culture")
+        if culture_node:
+            culture = culture_node.value.strip().strip("'\"")
+        version_node = _find_child(root, "defaultPowerBIDataSourceVersion")
+        if version_node:
+            data_source_version = version_node.value.strip().strip("'\"")
+
+    database_file = os.path.join(definition_path, "database.tmdl")
+    if os.path.exists(database_file):
+        with open(database_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        lines = content.split("\n")
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
+        compat_node = _find_child(root, "compatibilityLevel")
+        if compat_node:
+            compatibility_level = compat_node.value.strip().strip("'\"")
+
+    return culture, data_source_version, compatibility_level
+
+
+# ---------------------------------------------------------------------------
 # Expression classifier (expressions.tmdl)
 #
 # Shared expressions already have their M extracted cleanly by the
@@ -1284,6 +1330,9 @@ def parse_semantic_model(model_folder: str, report_name: str) -> SemanticModel:
     roles_file = os.path.join(definition_path, "roles.tmdl")
     if os.path.exists(roles_file):
         model.security_roles = _parse_roles(roles_file)
+
+    model.model_culture, model.model_data_source_version, model.database_compatibility_level = \
+        _parse_model_database(definition_path)
 
     tables_path = os.path.join(definition_path, "tables")
     if os.path.isdir(tables_path):

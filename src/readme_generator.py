@@ -190,7 +190,7 @@ def _model_summary(
 # Section builders
 # ---------------------------------------------------------------------------
 
-def _overview_section(config: dict) -> str:
+def _overview_section(config: dict, model: SemanticModel) -> str:
     owner   = config.get("owner", "—")
     team    = config.get("team", "—")
     refresh = config.get("refresh_schedule", "—")
@@ -204,6 +204,9 @@ def _overview_section(config: dict) -> str:
         f"| **Owner** | {owner} |",
         f"| **Team** | {team} |",
         f"| **Refresh Schedule** | {refresh} |",
+        f"| **Culture** | {model.model_culture or '—'} |",
+        f"| **Compatibility Level** | {model.database_compatibility_level or '—'} |",
+        f"| **Data Source Version** | {model.model_data_source_version or '—'} |",
         f"| **Last Generated** | {today} |",
         "",
         "---",
@@ -1078,10 +1081,13 @@ def generate_html(
 
     body.append('<h2>Overview</h2>')
     body.append(_html_table(["Property", "Value"], [
-        ["Owner",            _esc(config.get("owner", "-") or "-")],
-        ["Team",             _esc(config.get("team", "-") or "-")],
-        ["Refresh Schedule", _esc(config.get("refresh_schedule", "-") or "-")],
-        ["Last Generated",   today],
+        ["Owner",               _esc(config.get("owner", "-") or "-")],
+        ["Team",                _esc(config.get("team", "-") or "-")],
+        ["Refresh Schedule",    _esc(config.get("refresh_schedule", "-") or "-")],
+        ["Culture",             _esc(model.model_culture or "-")],
+        ["Compatibility Level", _esc(model.database_compatibility_level or "-")],
+        ["Data Source Version", _esc(model.model_data_source_version or "-")],
+        ["Last Generated",      today],
     ], "overview-table"))
 
     body.append('<h2>1. Data Sources</h2>')
@@ -1393,7 +1399,7 @@ def generate_readme(
 
     sections = [
         f"# {report_name}\n",
-        _overview_section(config),
+        _overview_section(config, model),
         _data_sources_section(loaded_visible, staging, support, resolved, model),
         _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
         _measures_section(model.tables, include_dax, show_hidden),
