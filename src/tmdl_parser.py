@@ -781,6 +781,24 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
     return expr
 
 
+def _extract_string_or_param_arg(clean: str, pattern_quoted: str, pattern_bare: str) -> Optional[str]:
+    """
+    Try to extract a connector argument as a quoted string literal first.
+    If that fails, try again treating the argument as a bare M identifier
+    (an M parameter reference) and return it wrapped as "[param:Name]" -
+    the exact marker format source_resolver.py's _resolve_param already
+    expects and substitutes.
+    Returns None if neither pattern matches.
+    """
+    m = re.search(pattern_quoted, clean)
+    if m:
+        return m.group(1)
+    m = re.search(pattern_bare, clean)
+    if m:
+        return f"[param:{m.group(1)}]"
+    return None
+
+
 def _extract_connector_details(expr: SourceExpression, clean: str, namespace: str, function: str) -> None:
     """Populates detail fields on expr based on namespace/function. Mutates in place."""
 
@@ -793,10 +811,15 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
         if entity: expr.entity       = entity.group(1)
 
     elif namespace in ("Sql", "AzureSQL", "AmazonRedshift") and function == "Database":
-        sql_m = re.search(r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"', clean)
-        if sql_m:
-            expr.server   = sql_m.group(1)
-            expr.database = sql_m.group(2)
+        # Extract server argument (first parameter)
+        server_quoted_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*"([^"]*)"'
+        server_bare_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.server = _extract_string_or_param_arg(clean, server_quoted_pattern, server_bare_pattern) or ""
+        
+        # Extract database argument (second parameter)
+        database_quoted_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\([^,]+,\s*"([^"]*)"'
+        database_bare_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.database = _extract_string_or_param_arg(clean, database_quoted_pattern, database_bare_pattern) or ""
         native = re.search(r'\[Query\s*=\s*"([^"]+)"\]', clean)
         if native:
             expr.is_native_query = True
@@ -824,48 +847,62 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
                         ref.source = "native_query"
 
     elif namespace == "Dataverse" and function == "Feed":
-        env = re.search(r'Dataverse\.Feed\s*\(\s*"([^"]+)"', clean)
-        if env:
-            expr.url = env.group(1)
+        quoted_pattern = r'Dataverse\.Feed\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Dataverse\.Feed\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif namespace == "Odbc" and function == "DataSource":
-        dsn = re.search(r'Odbc\.DataSource\s*\(\s*"([^"]+)"', clean)
-        if dsn:
-            expr.dsn = dsn.group(1)
+        quoted_pattern = r'Odbc\.DataSource\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Odbc\.DataSource\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.dsn = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif (function == "Database" and namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana")) \
             or (namespace == "Snowflake" and function == "Databases"):
-        patterns = {
-            "Oracle":    r'Oracle\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "MySql":     r'MySql\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "PostgreSQL": r'PostgreSQL\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "DB2":       r'DB2\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "SapHana":   r'SapHana\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "Snowflake": r'Snowflake\.Databases\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+        # Extract server argument (first parameter)
+        server_patterns = {
+            "Oracle":     (r'Oracle\.Database\s*\(\s*"([^"]*)"', r'Oracle\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "MySql":      (r'MySql\.Database\s*\(\s*"([^"]*)"', r'MySql\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "PostgreSQL": (r'PostgreSQL\.Database\s*\(\s*"([^"]*)"', r'PostgreSQL\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "DB2":        (r'DB2\.Database\s*\(\s*"([^"]*)"', r'DB2\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "SapHana":    (r'SapHana\.Database\s*\(\s*"([^"]*)"', r'SapHana\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "Snowflake":  (r'Snowflake\.Databases\s*\(\s*"([^"]*)"', r'Snowflake\.Databases\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
         }
-        match = re.search(patterns[namespace], clean)
-        if match:
-            expr.server   = match.group(1)
-            expr.database = match.group(2)
+        if namespace in server_patterns:
+            server_quoted, server_bare = server_patterns[namespace]
+            expr.server = _extract_string_or_param_arg(clean, server_quoted, server_bare) or ""
+        
+        # Extract database argument (second parameter)
+        database_patterns = {
+            "Oracle":     (r'Oracle\.Database\s*\([^,]+,\s*"([^"]*)"', r'Oracle\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "MySql":      (r'MySql\.Database\s*\([^,]+,\s*"([^"]*)"', r'MySql\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "PostgreSQL": (r'PostgreSQL\.Database\s*\([^,]+,\s*"([^"]*)"', r'PostgreSQL\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "DB2":        (r'DB2\.Database\s*\([^,]+,\s*"([^"]*)"', r'DB2\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "SapHana":    (r'SapHana\.Database\s*\([^,]+,\s*"([^"]*)"', r'SapHana\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "Snowflake":  (r'Snowflake\.Databases\s*\([^,]+,\s*"([^"]*)"', r'Snowflake\.Databases\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+        }
+        if namespace in database_patterns:
+            database_quoted, database_bare = database_patterns[namespace]
+            expr.database = _extract_string_or_param_arg(clean, database_quoted, database_bare) or ""
 
     elif namespace == "Teradata" and function == "Database":
-        match = re.search(r'Teradata\.Database\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.server = match.group(1)
+        quoted_pattern = r'Teradata\.Database\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Teradata\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.server = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif namespace == "Databricks" and function in ("Catalogs", "Contents"):
-        match = re.search(r'Databricks\.(?:Catalogs|Contents)\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.server = match.group(1)
+        quoted_pattern = r'Databricks\.(?:Catalogs|Contents)\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Databricks\.(?:Catalogs|Contents)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.server = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif namespace == "SharePoint" and function in ("Files", "Tables"):
-        sp = re.search(r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"', clean)
-        if sp:
-            expr.sharepoint_url = sp.group(1)
+        quoted_pattern = r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"'
+        bare_pattern = r'SharePoint\.(?:Files|Tables)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.sharepoint_url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
         if "Excel.Workbook" in clean:
-            fn = re.search(r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"', clean)
-            if fn:
-                expr.file_name = fn.group(1)
+            # Extract file_name from File.Contents
+            fn_quoted = r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"'
+            fn_bare = r'\[Name\]\s*=\s*([A-Za-z_][A-Za-z0-9_]*)'
+            expr.file_name = _extract_string_or_param_arg(clean, fn_quoted, fn_bare) or ""
             sheet = re.search(r'Item\s*=\s*"([^"]+)"', clean)
             if sheet:
                 expr.sheet_name = sheet.group(1)
@@ -875,50 +912,52 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
                 expr.table_or_view = lst.group(1)
 
     elif namespace == "Excel" and function == "Workbook":
-        fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
-        if fn:
-            expr.file_name = fn.group(1)
+        quoted_pattern = r'File\.Contents\s*\(\s*"([^"]+)"'
+        bare_pattern = r'File\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.file_name = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
         sheet = re.search(r'Item\s*=\s*"([^"]+)"', clean)
         if sheet:
             expr.sheet_name = sheet.group(1)
 
     elif namespace == "Csv" and function == "Document":
-        fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
-        if fn:
-            expr.file_name = fn.group(1)
+        quoted_pattern = r'File\.Contents\s*\(\s*"([^"]+)"'
+        bare_pattern = r'File\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.file_name = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif (namespace, function) in (("Web", "Contents"), ("OData", "Feed")):
-        url = re.search(r'(?:Web\.Contents|OData\.Feed)\s*\(\s*"([^"]+)"', clean)
-        if url:
-            expr.url = url.group(1)
+        quoted_pattern = r'(?:Web\.Contents|OData\.Feed)\s*\(\s*"([^"]+)"'
+        bare_pattern = r'(?:Web\.Contents|OData\.Feed)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
         entity = re.search(r'Name\s*=\s*"([^"]+)"', clean)
         if entity:
             expr.table_or_view = entity.group(1)
 
     elif (namespace, function) in (("SmartsheetGlobal", "Contents"), ("Smartsheet", "Tables")):
-        region = re.search(r'SmartsheetGlobal\.Contents\s*\(\s*"([^"]+)"', clean)
-        if region:
-            expr.url = region.group(1)
+        # Only SmartsheetGlobal has the region parameter, Smartsheet.Tables doesn't
+        if namespace == "SmartsheetGlobal":
+            quoted_pattern = r'SmartsheetGlobal\.Contents\s*\(\s*"([^"]+)"'
+            bare_pattern = r'SmartsheetGlobal\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+            expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif (namespace, function) == ("AzureDevOps", "Contents"):
-        match = re.search(r'AzureDevOps\.Contents\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.url = match.group(1)
+        quoted_pattern = r'AzureDevOps\.Contents\s*\(\s*"([^"]+)"'
+        bare_pattern = r'AzureDevOps\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif (namespace, function) == ("Dynamics365", "FinanceAndOperations"):
-        match = re.search(r'Dynamics365\.FinanceAndOperations\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.url = match.group(1)
+        quoted_pattern = r'Dynamics365\.FinanceAndOperations\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Dynamics365\.FinanceAndOperations\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     elif namespace in ("GoogleSheets", "QuickBooks", "GitHub") and function == "Contents":
         patterns = {
-            "GoogleSheets": r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"',
-            "QuickBooks":   r'QuickBooks\.Contents\s*\(\s*"([^"]+)"',
-            "GitHub":       r'GitHub\.Contents\s*\(\s*"([^"]+)"',
+            "GoogleSheets": (r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"', r'GoogleSheets\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "QuickBooks":   (r'QuickBooks\.Contents\s*\(\s*"([^"]+)"', r'QuickBooks\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "GitHub":       (r'GitHub\.Contents\s*\(\s*"([^"]+)"', r'GitHub\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
         }
-        match = re.search(patterns[namespace], clean)
-        if match:
-            expr.url = match.group(1)
+        if namespace in patterns:
+            quoted_pattern, bare_pattern = patterns[namespace]
+            expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
     # ARCH-03 - unconditional navigation fallbacks.
     # Pattern A (Schema/Item) and Pattern B (Name chain) are Power BI's own
