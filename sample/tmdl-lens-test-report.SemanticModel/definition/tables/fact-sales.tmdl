@@ -28,6 +28,15 @@ table fact-sales
 
 		annotation SummarizationSetBy = Automatic
 
+	column ship_date
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 00000003-0000-0000-0000-000000000005
+		summarizeBy: none
+		sourceColumn: ship_date
+
+		annotation SummarizationSetBy = Automatic
+
 	column amount
 		dataType: double
 		lineageTag: 00000003-0000-0000-0000-000000000004
@@ -35,6 +44,17 @@ table fact-sales
 		sourceColumn: amount
 
 		annotation SummarizationSetBy = Automatic
+
+	measure '_Row Count Helper' = COUNTROWS('fact-sales')
+		isHidden
+		lineageTag: 00000003-0000-0000-0000-000000000099
+		formatString: #,##0
+
+	measure 'Order Fulfillment Summary' = [Open Order Count] & " open, status: " & SELECTEDVALUE('helper-order-lookup'[status_code])
+		lineageTag: 00000003-0000-0000-0000-000000000098
+		formatString: 0
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
 
 	partition fact-sales = m
 		mode: import

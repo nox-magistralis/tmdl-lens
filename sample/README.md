@@ -1,24 +1,27 @@
-# tmdl-lens-test-report
+# tmdl-lens Test Report
 
 ## Overview
 
 | Property | Value |
 |---|---|
-| **Owner** |  |
-| **Team** |  |
-| **Refresh Schedule** |  |
-| **Last Generated** | 29 March 2026 |
+| **Owner** | Report Owner |
+| **Team** | BI Team |
+| **Refresh Schedule** | Daily at 06:00 UTC |
+| **Culture** | en-US |
+| **Compatibility Level** | 1605 |
+| **Data Source Version** | powerBI_V3 |
+| **Last Generated** | 24 July 2026 |
 
 ---
 
 ## 1. Data Sources
 
-This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 measures-only table, 1 calculation group, 1 not loaded, 4 measures, 18 relationships.
+This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 measures-only table, 1 calculation group, 1 not loaded, 7 measures, 3 relationships.
 
 | Table | Source Type | Source |
 |---|---|---|
-| `dim-product` | Power Platform Dataflow | product_dim |
-| `fact-sales` | Power BI Dataflow | sales_fact |
+| `dim-product` | — | — |
+| `fact-sales` | — | — |
 
 ### Support Tables
 
@@ -36,7 +39,15 @@ This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 me
 
 | Table | Source Type | Source |
 |---|---|---|
-| `source-sql-staging` | SQL Database | fake-server.database.windows.net / SalesDB / dbo.orders |
+| `source-sql-staging` | — | — |
+
+
+**Not Loaded Table Format Strings Used (3 total, 2 unique)**
+
+| Format String | Count | Columns |
+|---|---|---|
+| (none) | 2 | `status` (source-sql-staging), `internal_notes` (source-sql-staging) |
+| `0` | 1 | `order_id` (source-sql-staging) |
 
 ---
 
@@ -44,33 +55,81 @@ This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 me
 
 ### `dim-product`
 
-**Source:** Power Platform Dataflow  
-**Entity:** `product_dim`  
 
 **Columns**
 
-| Column | Type |
-|---|---|
-| `product_id` | Text |
-| `product_name` | Text |
-| `category` | Text |
-| `unit_price` | Decimal |
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `product_id` | Text | - | none | `product_id` | - | Unique identifier for the product, sourced from the product dimension feed |  |
+| `product_name` | Text | - | none | `product_name` | - | — |  |
+| `category` | Text | - | none | `category` | - | Product category grouping used for merchandising reports |  |
+| `unit_price` | Decimal | - | sum | `unit_price` | - | — |  |
+| `product_url` | Text | - | none | `product_url` | - | — |  |
+
+**Data Categories:** `product_url` = WebURL  
 
 ---
 
 ### `fact-sales`
 
-**Source:** Power BI Dataflow  
-**Entity:** `sales_fact`  
 
 **Columns**
 
-| Column | Type |
-|---|---|
-| `order_id` | Integer |
-| `customer_id` | Text |
-| `order_date` | Date/Time |
-| `amount` | Decimal |
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `order_id` | Integer | `0` | none | `order_id` | - | — |  |
+| `customer_id` | Text | - | none | `customer_id` | - | — |  |
+| `order_date` | Date/Time | `Long Date` | none | `order_date` | - | — |  |
+| `ship_date` | Date/Time | `Long Date` | none | `ship_date` | - | — |  |
+| `amount` | Decimal | - | sum | `amount` | - | — |  |
+
+**Measures**
+
+| Measure | Format | Description | Hidden |
+|---|---|---|---|
+| `_Row Count Helper` | `#,##0` | — | Hidden |
+| `Order Fulfillment Summary` | `0` | — |  |
+
+**Measure DAX**
+
+**`_Row Count Helper`**
+```dax
+COUNTROWS('fact-sales')
+```
+
+**`Order Fulfillment Summary`**
+```dax
+[Open Order Count] & " open, status: " & SELECTEDVALUE('helper-order-lookup'[status_code])
+```
+
+
+⚠ References hidden: `helper-order-lookup[status_code]` (in `helper-order-lookup`), `[Open Order Count]` (in `helper-order-lookup`)
+
+---
+
+### `helper-order-lookup`
+
+**Hidden:** Yes  
+
+**Columns**
+
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `order_id` | Integer | `0` | none | `order_id` | - | — |  |
+| `status_code` | Text | - | none | `status` | - | — |  |
+
+**Measures**
+
+| Measure | Format | Description | Hidden |
+|---|---|---|---|
+| `Open Order Count` | `0` | — |  |
+
+**Measure DAX**
+
+**`Open Order Count`**
+```dax
+COUNTROWS('helper-order-lookup')
+```
 
 ---
 
@@ -79,10 +138,10 @@ This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 me
 
 **Columns**
 
-| Column | Type |
-|---|---|
-| `Name` | Text |
-| `Ordinal` | Integer |
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `Name` | Text | - | - | `Name` | `Ordinal` | — |  |
+| `Ordinal` | Integer | - | - | `Ordinal` | - | — |  |
 
 **Calculation Items**
 
@@ -93,6 +152,8 @@ This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 me
 | `Rolling 12M` | 2 | `SELECTEDMEASUREFORMATSTRING()` |
 | `Prior Year` | 3 | `SELECTEDMEASUREFORMATSTRING()` |
 | `YoY %` | 4 | `0.00%` |
+
+> Calculation items can be applied to any measure at report-build time (via `SELECTEDMEASURE()`). TMDL has no static record of which measures a given item is actually used with.
 
 **Item DAX**
 
@@ -129,6 +190,15 @@ DIVIDE(
 
 ---
 
+
+**Format Strings Used (23 total, 3 unique)**
+
+| Format String | Count | Columns |
+|---|---|---|
+| (none) | 15 | `product_id` (dim-product), `product_name` (dim-product), `category` (dim-product), `unit_price` (dim-product), `product_url` (dim-product), `customer_id` (fact-sales), `amount` (fact-sales), `status_code` (helper-order-lookup), `Name` (cg-time-intelligence), `Ordinal` (cg-time-intelligence), `MonthName` (dim-date), `IsWeekend` (dim-date), `PriorYearFlag` (dim-date), `param-metric-selector` (param-metric-selector), `param-metric-selector Fields` (param-metric-selector) |
+| `0` | 5 | `order_id` (fact-sales), `order_id` (helper-order-lookup), `Year` (dim-date), `MonthNumber` (dim-date), `param-metric-selector Order` (param-metric-selector) |
+| `Long Date` | 3 | `order_date` (fact-sales), `ship_date` (fact-sales), `Date` (dim-date) |
+
 ## 3. Measures
 
 ### General
@@ -139,6 +209,9 @@ DIVIDE(
 | `Order Count` | `_measures` | `#,##0` | — |
 | `Avg Order Value` | `_measures` | `#,##0.00` | — |
 | `Sales YTD` | `_measures` | `#,##0.00` | — |
+| `_Row Count Helper` | `fact-sales` | `#,##0` | — |
+| `Order Fulfillment Summary` | `fact-sales` | `0` | — |
+| `Open Order Count` | `helper-order-lookup` | `0` | — |
 
 **`Total Sales Amount`**
 ```dax
@@ -160,30 +233,44 @@ DIVIDE([Total Sales Amount], [Order Count], 0)
 TOTALYTD([Total Sales Amount], 'dim-date'[Date])
 ```
 
+**`_Row Count Helper`**
+```dax
+COUNTROWS('fact-sales')
+```
+
+**`Order Fulfillment Summary`**
+```dax
+[Open Order Count] & " open, status: " & SELECTEDVALUE('helper-order-lookup'[status_code])
+```
+
+**`Open Order Count`**
+```dax
+COUNTROWS('helper-order-lookup')
+```
+
+
+**Format Strings Used (5 total, 3 unique)**
+
+| Format String | Count | Measures |
+|---|---|---|
+| `#,##0.00` | 2 | `Total Sales Amount` (_measures), `Avg Order Value` (_measures) |
+| `0` | 2 | `Order Fulfillment Summary` (fact-sales), `Open Order Count` (helper-order-lookup) |
+| `#,##0` | 1 | `Order Count` (_measures) |
+
 ---
 
 ## 4. Relationships
 
-| From Table | From Column | To Table | To Column | Cardinality |
-|---|---|---|---|---|
-| `Table1` | `Date` | `LocalDateTable_1235a396-8c1a-4354-82f9-f5dc91703c09` | `Date` | — |
-| `Table1` | `Start of Week` | `LocalDateTable_87a55924-2729-4f83-89f5-0260ae9bd078` | `Date` | — |
-| `Table1` | `End of Week` | `LocalDateTable_1a1b2bdd-c9f6-4dc5-b6d9-28538638be3a` | `Date` | — |
-| `Table1` | `Last Day of Month` | `LocalDateTable_e663dc7d-baca-4273-8315-ce6c2fe4b2ac` | `Date` | — |
-| `Table1` | `Last Quarter Day` | `LocalDateTable_61129bec-c6f6-4f3b-b99f-412a0e34948a` | `Date` | — |
-| `Table2` | `Column1` | `Table1` | `Date` | — |
-| `Table2` | `Column2` | `LocalDateTable_d251dd5f-12b8-4d75-ace6-35e887190b37` | `Date` | — |
-| `Table2` | `Column3` | `LocalDateTable_0eaff71c-dbb4-416e-88a6-b353f8e8e519` | `Date` | — |
-| `Table2` | `Column4` | `LocalDateTable_2dbf1ec4-7f1c-4ee5-88cd-2956680f6d61` | `Date` | — |
-| `Table2` | `Column5` | `LocalDateTable_f016af82-450a-4cde-9149-0c70b51e9afe` | `Date` | — |
-| `Table2` | `Column6` | `LocalDateTable_2f08567f-90b5-4fd0-a981-814ac9d9a273` | `Date` | — |
-| `Table2` | `Column7` | `LocalDateTable_b20a67d5-65b4-482d-8e39-73c48b06cdf6` | `Date` | — |
-| `Table2` | `Column8` | `LocalDateTable_a432e253-f22f-43c5-91c9-0dfe939cc1c8` | `Date` | — |
-| `Table3` | `Column1` | `Table1` | `Date` | — |
-| `Table3` | `Column2` | `LocalDateTable_02bcc64b-85d1-445f-bbf2-553a5c09407d` | `Date` | — |
-| `Table4` | `Column1` | `Table1` | `Date` | — |
-| `Table3` | `Column3` | `Table5` | `Key` | — |
-| `Table4` | `Column2` | `Table5` | `Key` | — |
+| From Table | From Column | To Table | To Column | Cardinality | Cross Filter | Security Filter |
+|---|---|---|---|---|---|---|
+| `fact-sales` | `order_date` | `dim-date` | `Date` | Many-to-One | bothDirections | oneDirection |
+| `fact-sales` | `customer_id` | `dim-product` | `product_id` | Many-to-One | automatic | oneDirection |
+
+**Inactive Relationships**
+
+| From Table | From Column | To Table | To Column | Cross Filter | Security Filter |
+|---|---|---|---|---|---|
+| `fact-sales` | `ship_date` | `dim-date` | `Date` | automatic | bothDirections |
 
 ---
 
@@ -219,7 +306,8 @@ Use tmdl-lens to provide a manual label for each.
 
 | Expression | Reason |
 |---|---|
-| `source-dynamic` | Dynamic M - URL or query is built at runtime and cannot be statically resolved |
+| `source-via-custom-function` | Unclassified source type: unknown |
+| `source-dynamic` | Unclassified source type: unknown |
 
 ---
 
@@ -228,15 +316,16 @@ Use tmdl-lens to provide a manual label for each.
 | Category | Count | Items |
 |---|---|---|
 | Loaded Tables | 2 | `dim-product`, `fact-sales` |
+| Hidden Tables | 1 | `helper-order-lookup` |
 | Calculated Tables | 1 | `dim-date` |
 | Field Parameters | 1 | `param-metric-selector` |
 | Measures-Only Tables | 1 | `_measures` |
 | Calculation Groups | 1 | `cg-time-intelligence` |
 | Not Loaded | 1 | `source-sql-staging` |
-| Relationships | 18 | — |
-| Measures | 4 | — |
-| Calculated Columns | 0 | — |
+| Relationships | 3 | — |
+| Measures | 7 | — |
+| Calculated Columns | 2 | — |
 
 ---
 
-*Generated by tmdl-lens · 29 March 2026*
+*Generated by tmdl-lens · 24 July 2026*

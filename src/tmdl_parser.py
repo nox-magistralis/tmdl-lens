@@ -23,6 +23,14 @@ class Column:
     is_calculated: bool = False
     dax_expression: str = ""
     is_hidden: bool = False
+    format_string: str = ""
+    source_column: str = ""
+    summarize_by: str = ""
+    sort_by_column: str = ""
+    data_category: str = ""
+    is_key: bool = False
+    lineage_tag: str = ""
+    description: str = ""
 
 
 @dataclass
@@ -32,6 +40,8 @@ class Measure:
     display_folder: str = ""
     format_string: str = ""
     description: str = ""
+    is_hidden: bool = False
+    lineage_tag: str = ""
 
 
 @dataclass
@@ -42,6 +52,8 @@ class Relationship:
     to_column: str
     cardinality: str = ""
     is_active: bool = True
+    cross_filtering_behavior: str = "automatic"
+    security_filtering_behavior: str = "oneDirection"
 
 
 @dataclass
@@ -88,28 +100,15 @@ class SourceExpression:
     Also used for inline M sources classified directly from table files.
 
     source_type values:
-      dataflow_pbi        PowerBI.Dataflows()
-      dataflow_platform   PowerPlatform.Dataflows()
-      sql                 Sql.Database()
-      sql_native_query    Sql.Database() with native query
-      odbc                Odbc.DataSource()
-      sharepoint_files    SharePoint.Files()
-      sharepoint_tables   SharePoint.Tables()
-      excel_sharepoint    Excel.Workbook() via SharePoint.Files()
-      excel_local         Excel.Workbook(File.Contents(...))
-      csv_local           Csv.Document(File.Contents(...))
-      web_api             Web.Contents()
-      odata               OData.Feed()
-      hardcoded           #table(...) inline data
-      embedded            Table.FromRows() hardcoded data
-      smartsheet          SmartsheetGlobal.Contents() or Smartsheet.Tables()
+      connector           any external data connector (identity in
+                          connector_namespace/connector_function)
       table_combine       Table.Combine({...}) — union of queries
-      calc_series         GENERATESERIES(...)
-      connector_unknown   Unrecognised Namespace.Function() connector
+      embedded            Table.FromRows() hardcoded data
+      hardcoded           #table(...) inline data
       derived             references another expression via Source = #"name"
       derived_table       references another table inline
       parameter           IsParameterQuery = true
-      function_def        function definition
+      function_def        custom function definition
       scalar_helper       returns a scalar value, not a table
       unknown             could not be classified
     """
@@ -117,6 +116,11 @@ class SourceExpression:
     source_type: str = "unknown"
     query_group: str = ""
     raw_m: str = ""
+
+    # Connector identity (populated when source_type == "connector")
+    connector_namespace: str = ""
+    connector_function: str = ""
+    is_native_query: bool = False
 
     # Dataflow fields
     workspace_id: str = ""
@@ -146,9 +150,6 @@ class SourceExpression:
     combine_sources: list = field(default_factory=list)
     physical_tables: list = field(default_factory=list)
 
-    # Unknown connector — raw function name surfaced for user labelling
-    connector_fn: str = ""
-
     # Custom function / parameter fields
     function_name: str = ""
     function_args: str = ""
@@ -165,6 +166,8 @@ class Table:
     source_ref: str = ""
     is_hidden: bool = False
     is_loaded: bool = True
+    lineage_tag: str = ""
+    description: str = ""
     columns: list = field(default_factory=list)
     measures: list = field(default_factory=list)
     calculation_items: list = field(default_factory=list)
@@ -180,85 +183,10 @@ class SemanticModel:
     source_expressions: list = field(default_factory=list)
     m_parameters: list = field(default_factory=list)
     security_roles: list = field(default_factory=list)
+    model_culture: str = ""
+    model_data_source_version: str = ""
+    database_compatibility_level: str = ""
 
-
-# ---------------------------------------------------------------------------
-# Connector signature registry
-#
-# Maps the start of a Power Query connector function call to a source_type.
-# Checked in priority order — more specific patterns listed first.
-# To add a new connector: one entry here, one label in source_resolver.py.
-# Unknown connectors (Namespace.Function pattern not listed here) are
-# detected automatically and surfaced as source_type="connector_unknown"
-# with the raw function name stored in connector_fn for user labelling.
-# ---------------------------------------------------------------------------
-
-# (pattern_substring, source_type)
-# Checked via `pattern in content` after comment stripping.
-# Order matters — more specific checks first.
-_CONNECTOR_CHECKS = [
-    # Dataflows
-    ("PowerBI.Dataflows(",          "dataflow_pbi"),
-    ("PowerPlatform.Dataflows(",    "dataflow_platform"),
-    # SQL
-    ("Sql.Database(",               "sql"),
-    ("AzureSQL.Database(",          "sql"),
-    ("AmazonRedshift.Database(",    "sql"),
-    # Cloud storage / data platforms
-    ("AzureStorage.BlobContents(",  "azure_storage"),
-    ("AzureStorage.Blobs(",         "azure_storage"),
-    ("AzureDataLake.Contents(",     "adls"),
-    ("AzureBlobStorage.Contents(",  "azure_storage"),
-    ("Lakehouse.Contents(",         "lakehouse"),
-    ("Warehouse.Contents(",         "fabric_warehouse"),
-    ("Databricks.Catalogs(",        "databricks"),
-    ("Databricks.Contents(",        "databricks"),
-    ("Snowflake.Databases(",        "snowflake"),
-    # SharePoint / Files
-    ("SharePoint.Files(",           "sharepoint_files"),
-    ("SharePoint.Tables(",          "sharepoint_tables"),
-    # Excel / CSV / local files
-    ("Excel.Workbook(",             "excel_local"),
-    ("Csv.Document(",               "csv_local"),
-    # Web / API
-    ("Web.Contents(",               "web_api"),
-    ("OData.Feed(",                 "odata"),
-    # ODBC / OLEDB
-    ("Odbc.DataSource(",            "odbc"),
-    ("OleDb.Query(",                "oledb"),
-    # Smartsheet
-    ("SmartsheetGlobal.Contents(",  "smartsheet"),
-    ("Smartsheet.Tables(",          "smartsheet"),
-    # Google
-    ("GoogleAnalytics.Accounts(",   "google_analytics"),
-    ("GoogleBigQuery.Database(",    "bigquery"),
-    # Salesforce
-    ("Salesforce.Data(",            "salesforce"),
-    ("Salesforce.Reports(",         "salesforce"),
-    # Other common connectors
-    ("Exchange.Contents(",          "exchange"),
-    ("ActiveDirectory.Domains(",    "active_directory"),
-    ("SapHana.Database(",           "sap_hana"),
-    ("SapBusinessWarehouse.Cubes(", "sap_bw"),
-    ("Oracle.Database(",            "oracle"),
-    ("MySql.Database(",             "mysql"),
-    ("PostgreSQL.Database(",        "postgresql"),
-    ("Teradata.Database(",          "teradata"),
-    ("DB2.Database(",               "db2"),
-    # Microsoft / Dynamics
-    ("AzureDevOps.Contents(",       "azure_devops"),
-    ("Dynamics365.FinanceAndOperations(", "dynamics_fo"),
-    # SaaS / productivity
-    ("GoogleSheets.Contents(",      "google_sheets"),
-    ("QuickBooks.Contents(",        "quickbooks"),
-    ("GitHub.Contents(",            "github"),
-    # Power BI / Power Platform datasets
-    ("PowerBI.Datasets(",          "powerbi_dataset"),
-    ("Dataverse.Feed(",             "dataverse"),
-    # Inline / hardcoded
-    ("Table.FromRows(",             "embedded"),
-    ("#table(",                     "hardcoded"),
-]
 
 # Transformation functions — these are NOT sources, ignore them
 # when detecting `Table.Combine` specifically for appends/unions.
@@ -267,6 +195,7 @@ _TRANSFORM_FNS = {
     "Table.MergeQueries",
     "Table.Join",
 }
+
 
 
 # ---------------------------------------------------------------------------
@@ -333,34 +262,252 @@ def _extract_blocks(text: str, keyword: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Leading /// comment extractor
+# ---------------------------------------------------------------------------
+
+def _extract_leading_comments(content: str) -> dict:
+    """
+    Pre-scan the full table file content for '///' doc-comment lines and
+    associate each /// block with the column/measure header immediately
+    following it (at the same indent, no blank lines between). Returns a
+    dict mapping stripped header line -> joined description text.
+    """
+    mapping = {}
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        # Detect start of a /// comment block
+        if stripped.startswith("///"):
+            indent = len(line) - len(line.lstrip("\t "))
+            comments = []
+            # Collect all consecutive /// lines at the same indent
+            while i < len(lines):
+                s = lines[i].strip()
+                cur_indent = len(lines[i]) - len(lines[i].lstrip("\t "))
+                if s.startswith("///") and cur_indent == indent:
+                    comments.append(s[len("///"):].lstrip())
+                    i += 1
+                else:
+                    break
+            # Skip blank lines (not expected in real TMDL, but tolerate them)
+            while i < len(lines) and not lines[i].strip():
+                i += 1
+            # The next non-blank line at the same indent is the target header
+            if i < len(lines):
+                next_indent = len(lines[i]) - len(lines[i].lstrip("\t "))
+                if next_indent == indent:
+                    header = lines[i].strip()
+                    mapping[header] = " ".join(comments)
+                    continue  # do NOT advance i — let the outer loop handle it
+            # If no header followed, don't advance — let outer loop continue
+            continue
+        else:
+            i += 1
+    return mapping
+
+
+# ---------------------------------------------------------------------------
+# Tree node parser — shared indentation-tree infrastructure
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TmdlNode:
+    key: str
+    value: str = ""
+    children: list = field(default_factory=list)
+    indent: int = 0
+
+
+def _parse_tree(lines: list, start: int, parent_indent: int) -> tuple[list, int]:
+    """
+    Walk lines starting at `start`, treating each line's leading whitespace
+    as its indent level. Returns (list_of_TmdlNode_siblings, next_line_index).
+
+    A line becomes a sibling when its indent == parent_indent + 1.
+    Key/value split: first `=` or `:` separates key (before) from value (after).
+    Triple-backtick values are consumed as raw text (dedented), not recursed.
+    Blank lines are skipped.
+    """
+    nodes = []
+    i = start
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Skip blank lines
+        if not stripped:
+            i += 1
+            continue
+
+        indent = len(line) - len(line.lstrip("\t "))
+
+        # Stop if we've gone back to parent_indent or shallower
+        if indent <= parent_indent:
+            break
+
+        # Only process lines exactly one level deeper than parent
+        if indent != parent_indent + 1:
+            i += 1
+            continue
+
+        # Split key/value on first = or :
+        key = stripped
+        value = ""
+        sep_pos = -1
+        eq_pos = stripped.find("=")
+        colon_pos = stripped.find(":")
+        if eq_pos >= 0 and colon_pos >= 0:
+            sep_pos = eq_pos if eq_pos < colon_pos else colon_pos
+        elif eq_pos >= 0:
+            sep_pos = eq_pos
+        elif colon_pos >= 0:
+            sep_pos = colon_pos
+
+        if sep_pos >= 0:
+            key = stripped[:sep_pos].rstrip()
+            value = stripped[sep_pos + 1:].strip()
+
+        node = TmdlNode(key=key, value=value, indent=indent)
+
+        # Triple-backtick multi-line value
+        if value.startswith("```"):
+            raw_lines = []
+            i += 1
+            while i < len(lines):
+                if lines[i].strip() == "```":
+                    i += 1
+                    break
+                raw_lines.append(lines[i])
+                i += 1
+            node.value = _dedent("\n".join(raw_lines))
+            nodes.append(node)
+            continue
+
+        # If no value and deeper lines follow, recurse for children
+        if not value:
+            children, i = _parse_tree(lines, i + 1, indent)
+            node.children = children
+        else:
+            i += 1
+
+        nodes.append(node)
+
+    return nodes, i
+
+
+def _find_child(node: "TmdlNode", key: str) -> Optional["TmdlNode"]:
+    for c in node.children:
+        if c.key == key:
+            return c
+    return None
+
+
+def _find_children(node: "TmdlNode", key: str) -> list:
+    return [c for c in node.children if c.key == key]
+
+
+_COL_PROP_STOP = re.compile(
+    r"^(?:dataType|lineageTag|summarizeBy|sourceColumn|formatString|sortByColumn"
+    r"|dataCategory|displayFolder|description|isHidden|isKey|isNullable|isUnique"
+    r"|annotation|extendedProperty|changedProperty|relatedColumnDetails)\b"
+)
+
+
+# ---------------------------------------------------------------------------
 # Column parser
 # ---------------------------------------------------------------------------
 
-def _parse_column(block: str) -> Optional[Column]:
-    lines = block.strip().split("\n")
+def _parse_column(block: str, description: str = "") -> Optional[Column]:
+    lines = block.split("\n")
     header = lines[0].strip()
 
+    # Detect calculated column: column 'Name' = <dax> or column "Name" = <dax>
     calc = re.match(r"column\s+'(.+?)'\s*=|column\s+\"(.+?)\"\s*=", header)
     if calc:
         name = (calc.group(1) or calc.group(2)).strip()
-        dax_lines = []
-        for line in lines[1:]:
-            s = line.strip()
-            if re.match(r"(lineageTag|summarizeBy|annotation|formatString|isHidden|sortByColumn|extendedProperty|dataCategory):", s):
-                break
-            dax_lines.append(line)
-        dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
-        return Column(name=name, data_type="calculated", is_calculated=True,
-                      dax_expression=dax, is_hidden="isHidden" in block)
+        # Parse children via tree parser
+        base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+        children, _ = _parse_tree(lines, 1, base_indent)
+        root = TmdlNode(key="", children=children)
 
+        # DAX: inline from header, or accumulated from children before known properties
+        dax = ""
+        inline_dax_match = re.match(r"column\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
+        if inline_dax_match:
+            dax = inline_dax_match.group(1).strip().rstrip("`").strip()
+        else:
+            dax_lines = []
+            for line in lines[1:]:
+                s = line.strip()
+                if _COL_PROP_STOP.match(s):
+                    break
+                dax_lines.append(line)
+            dax = "\n".join(dax_lines).strip().lstrip("=").strip().rstrip("`").strip()
+
+        is_hidden = _find_child(root, "isHidden") is not None
+        fmt_node_calc = _find_child(root, "formatString")
+        format_string_calc = fmt_node_calc.value.strip().strip("'\"") if fmt_node_calc else ""
+        sc_node_calc = _find_child(root, "sourceColumn")
+        source_column_calc = sc_node_calc.value.strip().strip("'\"") if sc_node_calc else ""
+        sb_node_calc = _find_child(root, "summarizeBy")
+        summarize_by_calc = sb_node_calc.value.strip().strip("'\"") if sb_node_calc else ""
+        sort_node_calc = _find_child(root, "sortByColumn")
+        sort_by_column_calc = sort_node_calc.value.strip().strip("'\"") if sort_node_calc else ""
+        dc_node_calc = _find_child(root, "dataCategory")
+        data_category_calc = dc_node_calc.value.strip().strip("'\"") if dc_node_calc else ""
+        is_key_calc = _find_child(root, "isKey") is not None
+        lt_node_calc = _find_child(root, "lineageTag")
+        lineage_tag_calc = lt_node_calc.value.strip().strip("'\"") if lt_node_calc else ""
+        return Column(name=name, data_type="calculated", is_calculated=True,
+                      dax_expression=dax, is_hidden=is_hidden,
+                      format_string=format_string_calc,
+                      source_column=source_column_calc,
+                      summarize_by=summarize_by_calc,
+                      sort_by_column=sort_by_column_calc,
+                      data_category=data_category_calc,
+                      is_key=is_key_calc,
+                      lineage_tag=lineage_tag_calc,
+                      description=description)
+
+    # Plain column: column 'Name' or column "Name" or column barename
     plain = re.match(r"column\s+'(.+?)'$|column\s+\"(.+?)\"$|column\s+(\S+)$", header)
     if plain:
         name = (plain.group(1) or plain.group(2) or plain.group(3)).strip()
-        dt = re.search(r"dataType:\s*(\S+)", block)
+        # Parse children via tree parser
+        base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+        children, _ = _parse_tree(lines, 1, base_indent)
+        root = TmdlNode(key="", children=children)
+
+        dt_node = _find_child(root, "dataType")
+        data_type = dt_node.value if dt_node else "unknown"
+        is_hidden = _find_child(root, "isHidden") is not None
+        fmt_node_plain = _find_child(root, "formatString")
+        format_string_plain = fmt_node_plain.value.strip().strip("'\"") if fmt_node_plain else ""
+        sc_node_plain = _find_child(root, "sourceColumn")
+        source_column_plain = sc_node_plain.value.strip().strip("'\"") if sc_node_plain else ""
+        sb_node_plain = _find_child(root, "summarizeBy")
+        summarize_by_plain = sb_node_plain.value.strip().strip("'\"") if sb_node_plain else ""
+        sort_node_plain = _find_child(root, "sortByColumn")
+        sort_by_column_plain = sort_node_plain.value.strip().strip("'\"") if sort_node_plain else ""
+        dc_node_plain = _find_child(root, "dataCategory")
+        data_category_plain = dc_node_plain.value.strip().strip("'\"") if dc_node_plain else ""
+        is_key_plain = _find_child(root, "isKey") is not None
+        lt_node_plain = _find_child(root, "lineageTag")
+        lineage_tag_plain = lt_node_plain.value.strip().strip("'\"") if lt_node_plain else ""
         return Column(
             name=name,
-            data_type=dt.group(1) if dt else "unknown",
-            is_hidden="isHidden" in block,
+            data_type=data_type,
+            is_hidden=is_hidden,
+            format_string=format_string_plain,
+            source_column=source_column_plain,
+            summarize_by=summarize_by_plain,
+            sort_by_column=sort_by_column_plain,
+            data_category=data_category_plain,
+            is_key=is_key_plain,
+            lineage_tag=lineage_tag_plain,
+            description=description,
         )
     return None
 
@@ -369,36 +516,62 @@ def _parse_column(block: str) -> Optional[Column]:
 # Measure parser
 # ---------------------------------------------------------------------------
 
-def _parse_measure(block: str) -> Optional[Measure]:
-    lines = block.strip().split("\n")
+def _parse_measure(block: str, leading_description: str = "") -> Optional[Measure]:
+    lines = block.split("\n")
     header = lines[0].strip()
     m = re.match(r"measure\s+'(.+?)'\s*=|measure\s+\"(.+?)\"\s*=", header)
     if not m:
         return None
     name = (m.group(1) or m.group(2)).strip()
 
+    # Inline DAX from header
     inline = re.match(r"measure\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
     inline_dax = inline.group(1).strip() if inline else ""
 
+    # Parse children via tree parser
+    base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+    children, _ = _parse_tree(lines, 1, base_indent)
+    root = TmdlNode(key="", children=children)
+
+    # Multi-line DAX: lines before the first known property key
+    # NOTE: isHidden is a bare flag node (no colon value), but it appears
+    # as a child line in the TMDL block before property-key lines like
+    # lineageTag or formatString. Without isHidden in the stop-list, the
+    # line "isHidden" would leak into multiline_dax. Since the tree parser
+    # already captures it as a child node, we only need to stop DAX collection
+    # from the raw lines at property names that start with known keywords.
     dax_lines, in_dax = [], True
     for line in lines[1:]:
         s = line.strip()
-        if re.match(r"(formatString|displayFolder|lineageTag|annotation|description):", s):
+        if re.match(r"(formatString|displayFolder|lineageTag|isHidden|annotation|description):", s) or s == "isHidden":
             in_dax = False
         if in_dax:
             dax_lines.append(line)
-
-    folder = re.search(r"displayFolder:\s*(.+)", block)
-    fmt    = re.search(r"formatString:\s*(.+)", block)
-    desc   = re.search(r"description:\s*(.+)", block)
-
     multiline_dax = "\n".join(dax_lines).strip().rstrip("`").strip()
+
+    # Look up properties from tree
+    folder_node = _find_child(root, "displayFolder")
+    fmt_node = _find_child(root, "formatString")
+    desc_node = _find_child(root, "description")
+    hidden_node = _find_child(root, "isHidden")
+    lineage_node = _find_child(root, "lineageTag")
+
+    display_folder = folder_node.value.strip().strip("'\"") if folder_node else ""
+    format_string = fmt_node.value.strip().strip("'\"") if fmt_node else ""
+    # Precedence: /// comment wins over description: property
+    prop_description = desc_node.value.strip().strip("'\"") if desc_node else ""
+    description = leading_description if leading_description else prop_description
+    is_hidden = hidden_node is not None
+    lineage_tag = lineage_node.value.strip().strip("'\"") if lineage_node else ""
+
     return Measure(
         name=name,
         dax_expression=multiline_dax if multiline_dax else inline_dax,
-        display_folder=folder.group(1).strip().strip("'\"") if folder else "",
-        format_string=fmt.group(1).strip().strip("'\"") if fmt else "",
-        description=desc.group(1).strip().strip("'\"") if desc else "",
+        display_folder=display_folder,
+        format_string=format_string,
+        description=description,
+        is_hidden=is_hidden,
+        lineage_tag=lineage_tag,
     )
 
 
@@ -417,7 +590,8 @@ def _parse_calculation_items(content: str) -> list:
     items = []
     blocks = _extract_blocks(content, "calculationItem ")
     for position, block in enumerate(blocks):
-        header = block.strip().split("\n")[0].strip()
+        lines = block.split("\n")
+        header = lines[0].strip()
         name_m = (
             re.match(r"calculationItem\s+'([^']+)'", header) or
             re.match(r'calculationItem\s+"([^"]+)"', header) or
@@ -427,26 +601,31 @@ def _parse_calculation_items(content: str) -> list:
             continue
         name = name_m.group(1).strip()
 
-        ordinal_m = re.search(r"ordinal:\s*(\d+)", block)
-        ordinal = int(ordinal_m.group(1)) if ordinal_m else position
+        # Tree-parse the children
+        header_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+        children, _ = _parse_tree(lines, 1, header_indent)
+        root = TmdlNode(key="", children=children)
 
-        dax = ""
-        bt_m = re.search(r"calculationItem\s+\S+\s*=\s*```([\s\S]*?)```", block)
-        if bt_m:
-            dax = _dedent(bt_m.group(1))
-
-        fmt_expr = ""
-        fmt_bt = re.search(r"formatStringExpression\s*=\s*```([\s\S]*?)```", block)
-        if fmt_bt:
-            fmt_expr = _dedent(fmt_bt.group(1))
+        # ordinal — parse integer, fall back to position
+        ordinal_node = _find_child(root, "ordinal")
+        if ordinal_node:
+            try:
+                ordinal = int(ordinal_node.value)
+            except ValueError:
+                ordinal = position
         else:
-            fmt_inline = re.search(r'formatStringExpression\s*=\s*"([^"]+)"', block)
-            if fmt_inline:
-                fmt_expr = fmt_inline.group(1).strip()
-            else:
-                fmt_inline2 = re.search(r"formatStringExpression\s*=\s*(.+)", block)
-                if fmt_inline2:
-                    fmt_expr = fmt_inline2.group(1).strip().strip('`')
+            ordinal = position
+
+        # expression (DAX) — tree parser already handles triple-backtick dedent
+        expr_node = _find_child(root, "expression")
+        dax = expr_node.value if expr_node else ""
+
+        # formatStringExpression — strip quotes on inline values
+        fmt_node = _find_child(root, "formatStringExpression")
+        if fmt_node and fmt_node.value:
+            fmt_expr = fmt_node.value.strip().strip("'\"")
+        else:
+            fmt_expr = ""
 
         items.append(CalculationItem(
             name=name,
@@ -502,9 +681,9 @@ def _strip_m_comments(content: str) -> str:
 # Priority order:
 #   1. Scalar helper (PBI_ResultType signals non-table output)
 #   2. Table.Combine / Table.Append — union source
-#   3. Known connector signatures (_CONNECTOR_CHECKS)
-#   4. Unknown connector — any Namespace.Function( pattern not in known list
-#   5. Derived table reference — Source = #"name" or Source = TableName
+#   3. Inline / hardcoded — #table(...) or Table.FromRows(...)
+#   4. Generic connector — any Namespace.Function( pattern (primary path)
+#   5. Derived / derived_table — Source = #"name" or Source = TableName
 #   6. Unresolved
 # ---------------------------------------------------------------------------
 
@@ -543,27 +722,30 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
             expr.combine_sources = [r.strip() for r in refs if r.strip()]
             return expr
 
-    # 3. Known connector signatures — checked in priority order
-    for fn_pattern, source_type in _CONNECTOR_CHECKS:
-        if fn_pattern in clean:
-            expr.source_type = source_type
-            # Extract detail fields for connectors that have them
-            _extract_connector_details(expr, clean, source_type)
-            return expr
+    # 3. Inline / hardcoded — these are NOT connectors, matches stay unchanged
+    if "#table(" in clean:
+        expr.source_type = "hardcoded"
+        return expr
+    if "Table.FromRows(" in clean:
+        expr.source_type = "embedded"
+        return expr
 
-    # 4. Unknown connector — detect any Namespace.Function( pattern not already matched
-    #    Ignore transformation functions (NestedJoin, MergeQueries, etc.)
-    unknown = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
-    if unknown:
-        fn = unknown.group(1)
+    # 4. Generic connector detection — primary path for external connectors
+    #    Matches any Namespace.Function( call, excluding M stdlib and transforms
+    generic = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
+    if generic:
+        fn = generic.group(1)
         if fn not in _TRANSFORM_FNS and not fn.startswith("Table.") and not fn.startswith("List.") \
                 and not fn.startswith("Text.") and not fn.startswith("Number.") \
                 and not fn.startswith("Date.") and not fn.startswith("DateTime.") \
                 and not fn.startswith("Record.") and not fn.startswith("Json.") \
                 and not fn.startswith("Binary.") and not fn.startswith("Splitter.") \
                 and not fn.startswith("Combiner.") and not fn.startswith("Replacer."):
-            expr.source_type = "connector_unknown"
-            expr.connector_fn = fn
+            namespace, function = fn.split(".", 1)
+            expr.source_type = "connector"
+            expr.connector_namespace = namespace
+            expr.connector_function = function
+            _extract_connector_details(expr, clean, namespace, function)
             return expr
 
     # 5a. Derived — references a shared expression: Source = #"name"
@@ -599,10 +781,28 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
     return expr
 
 
-def _extract_connector_details(expr: SourceExpression, clean: str, source_type: str) -> None:
-    """Populates detail fields on expr based on source_type. Mutates in place."""
+def _extract_string_or_param_arg(clean: str, pattern_quoted: str, pattern_bare: str) -> Optional[str]:
+    """
+    Try to extract a connector argument as a quoted string literal first.
+    If that fails, try again treating the argument as a bare M identifier
+    (an M parameter reference) and return it wrapped as "[param:Name]" -
+    the exact marker format source_resolver.py's _resolve_param already
+    expects and substitutes.
+    Returns None if neither pattern matches.
+    """
+    m = re.search(pattern_quoted, clean)
+    if m:
+        return m.group(1)
+    m = re.search(pattern_bare, clean)
+    if m:
+        return f"[param:{m.group(1)}]"
+    return None
 
-    if source_type in ("dataflow_pbi", "dataflow_platform"):
+
+def _extract_connector_details(expr: SourceExpression, clean: str, namespace: str, function: str) -> None:
+    """Populates detail fields on expr based on namespace/function. Mutates in place."""
+
+    if (namespace, function) in (("PowerBI", "Dataflows"), ("PowerPlatform", "Dataflows")):
         wid    = re.search(r'workspaceId\s*=\s*"([^"]+)"', clean)
         dfid   = re.search(r'dataflowId\s*=\s*"([^"]+)"', clean)
         entity = re.search(r'entity\s*=\s*"([^"]+)"', clean)
@@ -610,20 +810,25 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
         if dfid:   expr.dataflow_id  = dfid.group(1)
         if entity: expr.entity       = entity.group(1)
 
-    elif source_type in ("sql", "sql_native_query"):
-        sql_m = re.search(r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"', clean)
-        if sql_m:
-            expr.server   = sql_m.group(1)
-            expr.database = sql_m.group(2)
+    elif namespace in ("Sql", "AzureSQL", "AmazonRedshift") and function == "Database":
+        # Extract server argument (first parameter)
+        server_quoted_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*"([^"]*)"'
+        server_bare_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.server = _extract_string_or_param_arg(clean, server_quoted_pattern, server_bare_pattern) or ""
+        
+        # Extract database argument (second parameter)
+        database_quoted_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\([^,]+,\s*"([^"]*)"'
+        database_bare_pattern = r'(?:Sql|AzureSQL|AmazonRedshift)\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.database = _extract_string_or_param_arg(clean, database_quoted_pattern, database_bare_pattern) or ""
         native = re.search(r'\[Query\s*=\s*"([^"]+)"\]', clean)
         if native:
-            expr.source_type  = "sql_native_query"
-            expr.native_query = native.group(1)
+            expr.is_native_query = True
+            expr.native_query    = native.group(1)
         else:
             native_vq = re.search(r'Value\.NativeQuery\s*\([^,]+,\s*"([^"]+)"', clean)
             if native_vq:
-                expr.source_type  = "sql_native_query"
-                expr.native_query = native_vq.group(1)
+                expr.is_native_query = True
+                expr.native_query    = native_vq.group(1)
             else:
                 for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
                     schema_val = nav.group(1)
@@ -641,49 +846,63 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
                     for ref in expr.physical_tables:
                         ref.source = "native_query"
 
-    elif source_type == "dataverse":
-        env = re.search(r'Dataverse\.Feed\s*\(\s*"([^"]+)"', clean)
-        if env:
-            expr.url = env.group(1)
+    elif namespace == "Dataverse" and function == "Feed":
+        quoted_pattern = r'Dataverse\.Feed\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Dataverse\.Feed\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type == "odbc":
-        dsn = re.search(r'Odbc\.DataSource\s*\(\s*"([^"]+)"', clean)
-        if dsn:
-            expr.dsn = dsn.group(1)
+    elif namespace == "Odbc" and function == "DataSource":
+        quoted_pattern = r'Odbc\.DataSource\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Odbc\.DataSource\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.dsn = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type in ("oracle", "mysql", "postgresql", "db2", "sap_hana", "snowflake"):
-        patterns = {
-            "oracle":     r'Oracle\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "mysql":      r'MySql\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "postgresql": r'PostgreSQL\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "db2":        r'DB2\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "sap_hana":   r'SapHana\.Database\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
-            "snowflake":  r'Snowflake\.Databases\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+    elif (function == "Database" and namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana")) \
+            or (namespace == "Snowflake" and function == "Databases"):
+        # Extract server argument (first parameter)
+        server_patterns = {
+            "Oracle":     (r'Oracle\.Database\s*\(\s*"([^"]*)"', r'Oracle\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "MySql":      (r'MySql\.Database\s*\(\s*"([^"]*)"', r'MySql\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "PostgreSQL": (r'PostgreSQL\.Database\s*\(\s*"([^"]*)"', r'PostgreSQL\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "DB2":        (r'DB2\.Database\s*\(\s*"([^"]*)"', r'DB2\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "SapHana":    (r'SapHana\.Database\s*\(\s*"([^"]*)"', r'SapHana\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "Snowflake":  (r'Snowflake\.Databases\s*\(\s*"([^"]*)"', r'Snowflake\.Databases\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
         }
-        match = re.search(patterns[source_type], clean)
-        if match:
-            expr.server   = match.group(1)
-            expr.database = match.group(2)
+        if namespace in server_patterns:
+            server_quoted, server_bare = server_patterns[namespace]
+            expr.server = _extract_string_or_param_arg(clean, server_quoted, server_bare) or ""
+        
+        # Extract database argument (second parameter)
+        database_patterns = {
+            "Oracle":     (r'Oracle\.Database\s*\([^,]+,\s*"([^"]*)"', r'Oracle\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "MySql":      (r'MySql\.Database\s*\([^,]+,\s*"([^"]*)"', r'MySql\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "PostgreSQL": (r'PostgreSQL\.Database\s*\([^,]+,\s*"([^"]*)"', r'PostgreSQL\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "DB2":        (r'DB2\.Database\s*\([^,]+,\s*"([^"]*)"', r'DB2\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "SapHana":    (r'SapHana\.Database\s*\([^,]+,\s*"([^"]*)"', r'SapHana\.Database\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "Snowflake":  (r'Snowflake\.Databases\s*\([^,]+,\s*"([^"]*)"', r'Snowflake\.Databases\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)'),
+        }
+        if namespace in database_patterns:
+            database_quoted, database_bare = database_patterns[namespace]
+            expr.database = _extract_string_or_param_arg(clean, database_quoted, database_bare) or ""
 
-    elif source_type == "teradata":
-        match = re.search(r'Teradata\.Database\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.server = match.group(1)
+    elif namespace == "Teradata" and function == "Database":
+        quoted_pattern = r'Teradata\.Database\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Teradata\.Database\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.server = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type == "databricks":
-        match = re.search(r'Databricks\.(?:Catalogs|Contents)\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.server = match.group(1)
+    elif namespace == "Databricks" and function in ("Catalogs", "Contents"):
+        quoted_pattern = r'Databricks\.(?:Catalogs|Contents)\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Databricks\.(?:Catalogs|Contents)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.server = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint"):
-        sp = re.search(r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"', clean)
-        if sp:
-            expr.sharepoint_url = sp.group(1)
+    elif namespace == "SharePoint" and function in ("Files", "Tables"):
+        quoted_pattern = r'SharePoint\.(?:Files|Tables)\s*\(\s*"([^"]+)"'
+        bare_pattern = r'SharePoint\.(?:Files|Tables)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.sharepoint_url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
         if "Excel.Workbook" in clean:
-            expr.source_type = "excel_sharepoint"
-            fn = re.search(r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"', clean)
-            if fn:
-                expr.file_name = fn.group(1)
+            # Extract file_name from File.Contents
+            fn_quoted = r'\[Name\]\s*=\s*"([^"]+\.xlsx?)"'
+            fn_bare = r'\[Name\]\s*=\s*([A-Za-z_][A-Za-z0-9_]*)'
+            expr.file_name = _extract_string_or_param_arg(clean, fn_quoted, fn_bare) or ""
             sheet = re.search(r'Item\s*=\s*"([^"]+)"', clean)
             if sheet:
                 expr.sheet_name = sheet.group(1)
@@ -692,59 +911,65 @@ def _extract_connector_details(expr: SourceExpression, clean: str, source_type: 
             if lst:
                 expr.table_or_view = lst.group(1)
 
-    elif source_type == "excel_local":
-        fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
-        if fn:
-            expr.file_name = fn.group(1)
+    elif namespace == "Excel" and function == "Workbook":
+        quoted_pattern = r'File\.Contents\s*\(\s*"([^"]+)"'
+        bare_pattern = r'File\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.file_name = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
         sheet = re.search(r'Item\s*=\s*"([^"]+)"', clean)
         if sheet:
             expr.sheet_name = sheet.group(1)
 
-    elif source_type == "csv_local":
-        fn = re.search(r'File\.Contents\s*\(\s*"([^"]+)"', clean)
-        if fn:
-            expr.file_name = fn.group(1)
+    elif namespace == "Csv" and function == "Document":
+        quoted_pattern = r'File\.Contents\s*\(\s*"([^"]+)"'
+        bare_pattern = r'File\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.file_name = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type in ("web_api", "odata"):
-        url = re.search(r'(?:Web\.Contents|OData\.Feed)\s*\(\s*"([^"]+)"', clean)
-        if url:
-            expr.url = url.group(1)
+    elif (namespace, function) in (("Web", "Contents"), ("OData", "Feed")):
+        quoted_pattern = r'(?:Web\.Contents|OData\.Feed)\s*\(\s*"([^"]+)"'
+        bare_pattern = r'(?:Web\.Contents|OData\.Feed)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
         entity = re.search(r'Name\s*=\s*"([^"]+)"', clean)
         if entity:
             expr.table_or_view = entity.group(1)
 
-    elif source_type == "smartsheet":
-        region = re.search(r'SmartsheetGlobal\.Contents\s*\(\s*"([^"]+)"', clean)
-        if region:
-            expr.url = region.group(1)
+    elif (namespace, function) in (("SmartsheetGlobal", "Contents"), ("Smartsheet", "Tables")):
+        # Only SmartsheetGlobal has the region parameter, Smartsheet.Tables doesn't
+        if namespace == "SmartsheetGlobal":
+            quoted_pattern = r'SmartsheetGlobal\.Contents\s*\(\s*"([^"]+)"'
+            bare_pattern = r'SmartsheetGlobal\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+            expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type == "azure_devops":
-        match = re.search(r'AzureDevOps\.Contents\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.url = match.group(1)
+    elif (namespace, function) == ("AzureDevOps", "Contents"):
+        quoted_pattern = r'AzureDevOps\.Contents\s*\(\s*"([^"]+)"'
+        bare_pattern = r'AzureDevOps\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type == "dynamics_fo":
-        match = re.search(r'Dynamics365\.FinanceAndOperations\s*\(\s*"([^"]+)"', clean)
-        if match:
-            expr.url = match.group(1)
+    elif (namespace, function) == ("Dynamics365", "FinanceAndOperations"):
+        quoted_pattern = r'Dynamics365\.FinanceAndOperations\s*\(\s*"([^"]+)"'
+        bare_pattern = r'Dynamics365\.FinanceAndOperations\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    elif source_type in ("google_sheets", "quickbooks", "github"):
+    elif namespace in ("GoogleSheets", "QuickBooks", "GitHub") and function == "Contents":
         patterns = {
-            "google_sheets": r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"',
-            "quickbooks":    r'QuickBooks\.Contents\s*\(\s*"([^"]+)"',
-            "github":        r'GitHub\.Contents\s*\(\s*"([^"]+)"',
+            "GoogleSheets": (r'GoogleSheets\.Contents\s*\(\s*"([^"]+)"', r'GoogleSheets\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "QuickBooks":   (r'QuickBooks\.Contents\s*\(\s*"([^"]+)"', r'QuickBooks\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
+            "GitHub":       (r'GitHub\.Contents\s*\(\s*"([^"]+)"', r'GitHub\.Contents\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'),
         }
-        match = re.search(patterns[source_type], clean)
-        if match:
-            expr.url = match.group(1)
+        if namespace in patterns:
+            quoted_pattern, bare_pattern = patterns[namespace]
+            expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
 
-    # Pattern B - Name chain for cloud/platform connectors
-    name_chain_types = {
-        "lakehouse", "fabric_warehouse", "databricks", "snowflake",
-        "bigquery", "adls", "azure_storage", "dataverse",
-        "sharepoint_tables", "odata",
-    }
-    if source_type in name_chain_types and not expr.physical_tables:
+    # ARCH-03 - unconditional navigation fallbacks.
+    # Pattern A (Schema/Item) and Pattern B (Name chain) are Power BI's own
+    # navigation syntax, not connector vocabulary - if either appears in the M
+    # code, navigation to a physical table happened, regardless of connector.
+    # Specific branches above remain as label/detail upgraders only; when a
+    # branch already populated physical_tables, these fallbacks do nothing.
+    if not expr.physical_tables:
+        nav_tag = "native_query" if re.search(r'Value\.NativeQuery\s*\(', clean) else "navigation"
+        for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
+            expr.physical_tables.append(PhysicalTableRef(schema=nav.group(1), table=nav.group(2), source=nav_tag))
+    if not expr.physical_tables:
         segments = re.findall(r'\{?\[Name\s*=\s*"([^"]+)"\]\}?\[Data\]', clean)
         if segments:
             last = segments[-1]
@@ -789,17 +1014,36 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
 
-    for raw_line in content.split("\n"):
-        line = raw_line.strip()
-        if not line or line.startswith("//"):
+    lines = content.split("\n")
+    header_line = None
+    header_indent = 0
+    for i, raw_line in enumerate(lines):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("//"):
             continue
-        name_match = re.match(r"^table\s+(.+)$", line)
+        name_match = re.match(r"^table\s+(.+)$", stripped)
         if not name_match:
             return None
         name = name_match.group(1).strip().strip("'\"")
+        header_line = stripped
+        header_indent = len(raw_line) - len(raw_line.lstrip("\t "))
+        header_index = i
         break
     else:
         return None
+
+    # Tree-parse the table header's direct children (indent 0 -> indent 1)
+    children, _ = _parse_tree(lines, header_index + 1, header_indent)
+    table_root = TmdlNode(key="", children=children)
+
+    is_hidden   = _find_child(table_root, "isHidden") is not None
+    lineage_tag = ""
+    lt_node = _find_child(table_root, "lineageTag")
+    if lt_node:
+        lineage_tag = lt_node.value.strip().strip("'\"")
+
+    comment_map = _extract_leading_comments(content)
+    description = comment_map.get(header_line, "")
 
     qg = re.search(r"queryGroup:\s*'?([^'\n]+)'?", content)
     query_group = qg.group(1).strip().strip("'\"") if qg else ""
@@ -814,7 +1058,6 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     result_type = rt_m.group(1).strip() if rt_m else ""
 
     table_type = _classify_table(name, partition_type, content)
-    is_hidden  = bool(re.search(r"changedProperty\s*=\s*IsHidden", content))
     is_loaded  = "TabularEditor_EnableLoad = false" not in content
     source_ref = _extract_partition_source_ref(content) if partition_type == "m" else ""
 
@@ -831,8 +1074,19 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
     if partition_type == "m" and not source_ref:
         inline_source = _classify_m_content(content, name, result_type)
 
-    columns           = [c for b in _extract_blocks(content, "column ")  for c in [_parse_column(b)]  if c]
-    measures          = [m for b in _extract_blocks(content, "measure ")  for m in [_parse_measure(b)] if m]
+    columns = []
+    for b in _extract_blocks(content, "column "):
+        header = b.split("\n")[0].strip()
+        col = _parse_column(b, description=comment_map.get(header, ""))
+        if col:
+            columns.append(col)
+
+    measures = []
+    for b in _extract_blocks(content, "measure "):
+        header = b.split("\n")[0].strip()
+        m = _parse_measure(b, leading_description=comment_map.get(header, ""))
+        if m:
+            measures.append(m)
     calculation_items = _parse_calculation_items(content) if table_type == "calc_group" else []
 
     return Table(
@@ -843,6 +1097,8 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
         source_ref=source_ref,
         is_hidden=is_hidden,
         is_loaded=is_loaded,
+        lineage_tag=lineage_tag,
+        description=description,
         columns=columns,
         measures=measures,
         calculation_items=calculation_items,
@@ -862,14 +1118,20 @@ def _parse_relationships(filepath: str) -> list:
     rels = []
     normalised = re.sub(r"^relationship\s+", "\nrelationship ", content, count=1)
     for block in re.split(r"\nrelationship\s+", normalised):
-        from_match  = re.search(r"fromColumn:\s*(.+)", block)
-        to_match    = re.search(r"toColumn:\s*(.+)", block)
-        from_card_m = re.search(r"fromCardinality:\s*(\S+)", block)
-        to_card_m   = re.search(r"toCardinality:\s*(\S+)", block)
-        active      = "isActive: false" not in block
+        lines = block.split("\n")
+        # header at indent 0, properties at indent 1
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
 
-        from_card = from_card_m.group(1).strip() if from_card_m else "one"
-        to_card   = to_card_m.group(1).strip()   if to_card_m   else "many"
+        from_node = _find_child(root, "fromColumn")
+        to_node   = _find_child(root, "toColumn")
+        if not from_node or not to_node:
+            continue
+
+        from_card_m = _find_child(root, "fromCardinality")
+        to_card_m   = _find_child(root, "toCardinality")
+        from_card = from_card_m.value.strip() if from_card_m else "many"
+        to_card   = to_card_m.value.strip()   if to_card_m   else "many"
 
         if from_card == "one" and to_card == "many":
             cardinality = "One-to-Many"
@@ -882,18 +1144,28 @@ def _parse_relationships(filepath: str) -> list:
         else:
             cardinality = f"{from_card.capitalize()}-to-{to_card.capitalize()}"
 
-        if from_match and to_match:
-            from_parts = from_match.group(1).strip().rsplit(".", 1)
-            to_parts   = to_match.group(1).strip().rsplit(".", 1)
-            if len(from_parts) == 2 and len(to_parts) == 2:
-                rels.append(Relationship(
-                    from_table=from_parts[0].strip().strip("'\""),
-                    from_column=from_parts[1].strip().strip("'\""),
-                    to_table=to_parts[0].strip().strip("'\""),
-                    to_column=to_parts[1].strip().strip("'\""),
-                    cardinality=cardinality,
-                    is_active=active,
-                ))
+        is_active_node = _find_child(root, "isActive")
+        active = not (is_active_node and is_active_node.value.strip() == "false")
+
+        # Add tree lookups for crossFilteringBehavior and securityFilteringBehavior
+        cfb_node = _find_child(root, "crossFilteringBehavior")
+        sfb_node = _find_child(root, "securityFilteringBehavior")
+        cross_filtering = cfb_node.value.strip().strip("'\"") if cfb_node else "automatic"
+        security_filtering = sfb_node.value.strip().strip("'\"") if sfb_node else "oneDirection"
+
+        from_parts = from_node.value.strip().rsplit(".", 1)
+        to_parts   = to_node.value.strip().rsplit(".", 1)
+        if len(from_parts) == 2 and len(to_parts) == 2:
+            rels.append(Relationship(
+                from_table=from_parts[0].strip().strip("'\""),
+                from_column=from_parts[1].strip().strip("'\""),
+                to_table=to_parts[0].strip().strip("'\""),
+                to_column=to_parts[1].strip().strip("'\""),
+                cardinality=cardinality,
+                is_active=active,
+                cross_filtering_behavior=cross_filtering,
+                security_filtering_behavior=security_filtering,
+            ))
     return rels
 
 
@@ -923,14 +1195,16 @@ def _parse_roles(filepath: str) -> list:
         if name.startswith("//"):
             continue
 
+        lines = block.split("\n")
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
+
         filters = []
-        for perm in re.finditer(
-            r"tablePermission\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))\s*=\s*(.+)",
-            block
-        ):
-            table_name = (perm.group(1) or perm.group(2) or perm.group(3)).strip()
-            dax_filter = perm.group(4).strip()
-            filters.append(TableFilter(table=table_name, dax_filter=dax_filter))
+        for child in root.children:
+            if child.key.startswith("tablePermission"):
+                # key = "tablePermission '<table>'" — extract table name from key
+                table_name = child.key[len("tablePermission"):].strip().strip("'\"")
+                filters.append(TableFilter(table=table_name, dax_filter=child.value))
 
         is_dynamic = False
         dynamic_fn = ""
@@ -948,6 +1222,49 @@ def _parse_roles(filepath: str) -> list:
         ))
 
     return roles
+
+
+# ---------------------------------------------------------------------------
+# Model / database level parser
+# ---------------------------------------------------------------------------
+
+def _parse_model_database(definition_path: str) -> tuple[str, str, str]:
+    """
+    Reads model.tmdl and database.tmdl for the three Overview-level fields
+    in scope for this stage. Returns (culture, data_source_version,
+    compatibility_level) — each "" if the file or property is absent.
+    """
+    culture = ""
+    data_source_version = ""
+    compatibility_level = ""
+
+    model_file = os.path.join(definition_path, "model.tmdl")
+    if os.path.exists(model_file):
+        with open(model_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        lines = content.split("\n")
+        # model header is indent 0, its direct properties are indent 1
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
+        culture_node = _find_child(root, "culture")
+        if culture_node:
+            culture = culture_node.value.strip().strip("'\"")
+        version_node = _find_child(root, "defaultPowerBIDataSourceVersion")
+        if version_node:
+            data_source_version = version_node.value.strip().strip("'\"")
+
+    database_file = os.path.join(definition_path, "database.tmdl")
+    if os.path.exists(database_file):
+        with open(database_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        lines = content.split("\n")
+        children, _ = _parse_tree(lines, 1, 0)
+        root = TmdlNode(key="", children=children)
+        compat_node = _find_child(root, "compatibilityLevel")
+        if compat_node:
+            compatibility_level = compat_node.value.strip().strip("'\"")
+
+    return culture, data_source_version, compatibility_level
 
 
 # ---------------------------------------------------------------------------
@@ -1052,6 +1369,9 @@ def parse_semantic_model(model_folder: str, report_name: str) -> SemanticModel:
     roles_file = os.path.join(definition_path, "roles.tmdl")
     if os.path.exists(roles_file):
         model.security_roles = _parse_roles(roles_file)
+
+    model.model_culture, model.model_data_source_version, model.database_compatibility_level = \
+        _parse_model_database(definition_path)
 
     tables_path = os.path.join(definition_path, "tables")
     if os.path.isdir(tables_path):

@@ -5,6 +5,7 @@ Takes a parsed SemanticModel and resolved sources dict and produces
 a structured README.md for each Power BI report.
 """
 
+import re
 from datetime import date
 from src.tmdl_parser import SemanticModel, Table
 from src.source_resolver import ResolvedSource, get_table_source
@@ -34,60 +35,66 @@ def _dtype(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 _SOURCE_TYPE_LABEL = {
-    "dataflow_pbi":      "Power BI Dataflow",
-    "dataflow_platform": "Power Platform Dataflow",
-    "sql":               "SQL Database",
-    "sql_native_query":  "SQL (Native Query)",
-    "odbc":              "ODBC",
-    "oledb":             "OLE DB",
-    "sharepoint_files":  "SharePoint Files",
-    "sharepoint_tables": "SharePoint List",
-    "excel_sharepoint":  "Excel (SharePoint)",
-    "excel_local":       "Excel (Local)",
-    "csv_local":         "CSV (Local)",
-    "web_api":           "Web API",
-    "odata":             "OData",
-    "hardcoded":         "Hardcoded (Inline M)",
-    "embedded":          "Embedded Data",
-    "smartsheet":        "Smartsheet",
-    "table_combine":     "Combined Queries",
-    "calc_series":       "Calculated Series",
-    "azure_storage":     "Azure Blob Storage",
-    "adls":              "Azure Data Lake Storage",
-    "lakehouse":         "Microsoft Fabric Lakehouse",
-    "fabric_warehouse":  "Microsoft Fabric Warehouse",
-    "databricks":        "Databricks",
-    "snowflake":         "Snowflake",
-    "google_analytics":  "Google Analytics",
-    "bigquery":          "Google BigQuery",
-    "salesforce":        "Salesforce",
-    "exchange":          "Exchange",
-    "active_directory":  "Active Directory",
-    "sap_hana":          "SAP HANA",
-    "sap_bw":            "SAP BW",
-    "oracle":            "Oracle Database",
-    "mysql":             "MySQL",
-    "postgresql":        "PostgreSQL",
-    "teradata":          "Teradata",
-    "db2":               "IBM Db2",
-    "powerbi_dataset":   "Power BI Dataset",
-    "dataverse":         "Dataverse",
-    "azure_devops":      "Azure DevOps",
-    "dynamics_fo":       "Dynamics 365 Finance & Operations",
-    "google_sheets":     "Google Sheets",
-    "quickbooks":        "QuickBooks",
-    "github":            "GitHub",
-    "connector_unknown": "Unknown Connector",
-    "derived":           "Derived Query",
-    "derived_table":     "Derived Query",
-    "dynamic":           "Dynamic M",
-    "unresolved":        "Unresolved",
-    "function_def":      "Helper Function",
-    "scalar_helper":     "Scalar Helper",
+    "hardcoded":     "Hardcoded (Inline M)",
+    "embedded":      "Embedded Data",
+    "table_combine": "Combined Queries",
+    "dynamic":       "Dynamic M",
+    "unresolved":    "Unresolved",
+    "function_def":  "Helper Function",
+    "scalar_helper": "Scalar Helper",
 }
 
 def _source_type_label(source_type: str) -> str:
     return _SOURCE_TYPE_LABEL.get(source_type, source_type.replace("_", " ").title())
+
+
+# (namespace, function) -> short display name for the Source Type column.
+# Duplicated locally from source_resolver.py's _CONNECTOR_DISPLAY (private)
+# plus entries for database connectors not in that dict, to avoid a new
+# cross-module dependency. Unknown connectors fall back to "{namespace} {function}".
+_CONNECTOR_TYPE_LABEL = {
+    ("PowerBI", "Dataflows"):               "Power BI Dataflow",
+    ("PowerPlatform", "Dataflows"):          "Power Platform Dataflow",
+    ("Sql", "Database"):                    "SQL",
+    ("AzureSQL", "Database"):               "SQL",
+    ("AmazonRedshift", "Database"):         "SQL",
+    ("Odbc", "DataSource"):                 "ODBC",
+    ("SharePoint", "Files"):                "SharePoint Files",
+    ("SharePoint", "Tables"):               "SharePoint List",
+    ("Excel", "Workbook"):                  "Excel",
+    ("Csv", "Document"):                    "CSV (local)",
+    ("Web", "Contents"):                    "Web API",
+    ("OData", "Feed"):                      "OData",
+    ("SmartsheetGlobal", "Contents"):       "Smartsheet",
+    ("Smartsheet", "Tables"):               "Smartsheet",
+    ("Dataverse", "Feed"):                  "Dataverse",
+    ("AzureDevOps", "Contents"):            "Azure DevOps",
+    ("Dynamics365", "FinanceAndOperations"):"Dynamics 365 F&O",
+    ("GoogleSheets", "Contents"):           "Google Sheets",
+    ("QuickBooks", "Contents"):             "QuickBooks",
+    ("GitHub", "Contents"):                 "GitHub",
+    ("Oracle", "Database"):                 "Oracle",
+    ("MySql", "Database"):                  "MySQL",
+    ("PostgreSQL", "Database"):             "PostgreSQL",
+    ("DB2", "Database"):                    "IBM Db2",
+    ("SapHana", "Database"):                "SAP HANA",
+    ("Snowflake", "Database"):              "Snowflake",
+    ("Teradata", "Database"):               "Teradata",
+    ("Databricks", "Catalogs"):             "Databricks",
+    ("Databricks", "Contents"):             "Databricks",
+}
+
+def _connector_type_label(rs: ResolvedSource) -> str:
+    """Return a short Source Type display name for a ResolvedSource.
+    Uses connector_namespace/connector_function for connectors; falls
+    back to _source_type_label for non-connector types."""
+    if rs.source_type == "connector":
+        key = (rs.connector_namespace, rs.connector_function)
+        label = _CONNECTOR_TYPE_LABEL.get(key)
+        if label:
+            return label
+        return f"{rs.connector_namespace} {rs.connector_function}"
+    return _source_type_label(rs.source_type)
 
 
 def _source_label(rs: ResolvedSource) -> str:
@@ -99,13 +106,12 @@ def _source_label(rs: ResolvedSource) -> str:
     if rs.manual_label:
         return rs.manual_label
     # Non-source types return '-' regardless of unresolved status
-    if rs.source_type in ("scalar_helper", "function_def", "embedded", "hardcoded",
-                           "calc_series", "dynamic"):
+    if rs.source_type in ("scalar_helper", "function_def", "embedded", "hardcoded", "dynamic"):
         return "-"
     if rs.unresolved:
         return rs.unresolved_reason or "Unresolved"
     label = rs.label or "-"
-    if rs.source_type in ("dataflow_pbi", "dataflow_platform"):
+    if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform"):
         if rs.entity:
             if rs.chain:
                 return label
@@ -183,7 +189,7 @@ def _model_summary(
 # Section builders
 # ---------------------------------------------------------------------------
 
-def _overview_section(config: dict) -> str:
+def _overview_section(config: dict, model: SemanticModel) -> str:
     owner   = config.get("owner", "—")
     team    = config.get("team", "—")
     refresh = config.get("refresh_schedule", "—")
@@ -197,6 +203,9 @@ def _overview_section(config: dict) -> str:
         f"| **Owner** | {owner} |",
         f"| **Team** | {team} |",
         f"| **Refresh Schedule** | {refresh} |",
+        f"| **Culture** | {model.model_culture or '—'} |",
+        f"| **Compatibility Level** | {model.database_compatibility_level or '—'} |",
+        f"| **Data Source Version** | {model.model_data_source_version or '—'} |",
         f"| **Last Generated** | {today} |",
         "",
         "---",
@@ -223,7 +232,7 @@ def _data_sources_section(
         for t in loaded_tables:
             rs = get_table_source(t, resolved)
             if rs:
-                src_type = _source_type_label(rs.source_type)
+                src_type = _connector_type_label(rs)
                 label    = _source_label(rs)
             else:
                 src_type = "—"
@@ -257,13 +266,16 @@ def _data_sources_section(
         for t in staging_tables:
             rs = get_table_source(t, resolved)
             if rs:
-                src_type = _source_type_label(rs.source_type)
+                src_type = _connector_type_label(rs)
                 label    = _source_label(rs)
             else:
                 src_type = "—"
                 label    = "—"
             lines.append(f"| `{t.name}` | {src_type} | {label} |")
         lines.append("")
+        staging_fmt = _column_format_string_inventory(staging_tables, heading="Not Loaded Table Format Strings Used")
+        if staging_fmt:
+            lines.append(staging_fmt)
     else:
         lines += ["### Not Loaded", "", "*None.*", ""]
 
@@ -275,17 +287,23 @@ def _table_detail_block(
     table: Table,
     resolved: dict[str, ResolvedSource],
     include_dax: bool,
+    tables_by_name: dict | None = None,
+    hidden_measures_map: dict | None = None,
+    hidden_columns_map: dict | None = None,
+    show_hidden: bool = True,
 ) -> str:
     lines = [f"### `{table.name}`", ""]
 
     rs = get_table_source(table, resolved)
 
     if rs:
-        src_type_display = _source_type_label(rs.source_type)
+        src_type_display = _connector_type_label(rs)
         lines.append(f"**Source:** {src_type_display}  ")
-        if rs.source_type in ("dataflow_pbi", "dataflow_platform") and rs.entity:
+        # Dataflow entity (PowerBI / PowerPlatform)
+        if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform") and rs.entity:
             lines.append(f"**Entity:** `{rs.entity}`  ")
-        if rs.source_type in ("sql", "sql_native_query"):
+        # SQL (Sql/AzureSQL/AmazonRedshift .Database)
+        if rs.source_type == "connector" and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift") and rs.connector_function == "Database":
             if rs.schema and rs.table_or_view:
                 lines.append(f"**Table:** `{rs.schema}.{rs.table_or_view}`  ")
             if rs.physical_tables:
@@ -306,38 +324,63 @@ def _table_detail_block(
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
-        if rs.source_type in ("oracle", "mysql", "postgresql", "db2", "sap_hana", "snowflake"):
+        # Oracle/MySql/PostgreSQL/DB2/SapHana/Snowflake .Database
+        if rs.source_type == "connector" and rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake") and rs.connector_function == "Database":
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
-        if rs.source_type == "teradata":
+        # Teradata .Database
+        if rs.source_type == "connector" and rs.connector_namespace == "Teradata" and rs.connector_function == "Database":
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
-        if rs.source_type == "databricks":
+        # Databricks .Catalogs / .Contents
+        if rs.source_type == "connector" and rs.connector_namespace == "Databricks" and rs.connector_function in ("Catalogs", "Contents"):
             if rs.server:
                 lines.append(f"**Host:** `{rs.server}`  ")
-        if rs.source_type == "dataverse":
+        # Dataverse .Feed
+        if rs.source_type == "connector" and rs.connector_namespace == "Dataverse" and rs.connector_function == "Feed":
             if rs.url:
                 lines.append(f"**Environment URL:** `{rs.url}`  ")
-        if rs.source_type in ("azure_devops", "dynamics_fo", "google_sheets", "quickbooks", "github"):
+        # AzureDevOps/Contents, Dynamics365/FinanceAndOperations, GoogleSheets/QuickBooks/GitHub/Contents
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace == "AzureDevOps" and rs.connector_function == "Contents")
+            or (rs.connector_namespace == "Dynamics365" and rs.connector_function == "FinanceAndOperations")
+            or (rs.connector_namespace in ("GoogleSheets", "QuickBooks", "GitHub") and rs.connector_function == "Contents")
+        ):
             if rs.url:
                 lines.append(f"**URL:** `{rs.url}`  ")
-        if rs.source_type == "odbc" and rs.dsn:
+        # ODBC .DataSource
+        if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
             lines.append(f"**DSN:** `{rs.dsn}`  ")
-        if rs.source_type in ("sharepoint_files", "sharepoint_tables", "excel_sharepoint") and rs.sharepoint_url:
+        # SharePoint .Files / .Tables
+        if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
             lines.append(f"**SharePoint URL:** `{rs.sharepoint_url}`  ")
-        if rs.source_type in ("excel_local", "csv_local", "excel_sharepoint") and rs.file_name:
+        # File — Excel.Workbook or Csv.Document
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
+            or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
+        ) and rs.file_name:
             lines.append(f"**File:** `{rs.file_name}`  ")
-        if rs.source_type in ("excel_local", "excel_sharepoint") and rs.sheet_name:
+        # Sheet — Excel.Workbook
+        if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
             lines.append(f"**Sheet:** `{rs.sheet_name}`  ")
-        if rs.source_type in ("web_api", "odata") and rs.url:
+        # Web API / OData
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace == "Web" and rs.connector_function == "Contents")
+            or (rs.connector_namespace == "OData" and rs.connector_function == "Feed")
+        ) and rs.url:
             lines.append(f"**URL:** `{rs.url}`  ")
         if rs.chain:
             lines.append(f"**Chain:** `{rs.label}`  ")
         if rs.unresolved:
             lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
-        if rs.physical_tables and rs.source_type not in ("sql", "sql_native_query"):
+        # Fallback physical-table display — for connectors other than SQL Database
+        if rs.physical_tables and not (
+            rs.source_type == "connector"
+            and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
+            and rs.connector_function == "Database"
+        ):
             if len(rs.physical_tables) == 1:
                 ref = rs.physical_tables[0]
                 label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
@@ -363,19 +406,42 @@ def _table_detail_block(
     if not table.is_loaded:
         lines += ["", "> ⚠ Not loaded (`enableLoad = false`)."]
 
+    if table.is_hidden:
+        lines += ["**Hidden:** Yes  "]
+
     lines.append("")
 
-    visible_cols = [c for c in table.columns if not c.is_hidden and not c.is_calculated]
-    if visible_cols:
-        lines += ["**Columns**", "", "| Column | Type |", "|---|---|"]
-        for col in visible_cols:
-            lines.append(f"| `{col.name}` | {_dtype(col.data_type)} |")
+    all_cols = [c for c in table.columns if not c.is_calculated]
+    if show_hidden:
+        display_cols = all_cols
+    else:
+        display_cols = [c for c in all_cols if not c.is_hidden]
+    if display_cols:
+        lines += [
+            "**Columns**", "",
+            "| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for col in display_cols:
+            fmt     = f"`{col.format_string}`" if col.format_string else "-"
+            summ    = col.summarize_by or "-"
+            src_col = f"`{col.source_column}`" if col.source_column else "-"
+            sort_by = f"`{col.sort_by_column}`" if col.sort_by_column else "-"
+            desc    = col.description or "—"
+            hidden  = "Hidden" if col.is_hidden else ""
+            lines.append(
+                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} | {hidden} |"
+            )
         lines.append("")
 
-    hidden_cols = [c for c in table.columns if c.is_hidden and not c.is_calculated]
-    if hidden_cols:
-        details = ", ".join(f"`{c.name}`" for c in hidden_cols)
-        lines += [f"**Hidden Columns:** {details}  ", ""]
+        key_cols = [c.name for c in display_cols if c.is_key]
+        if key_cols:
+            lines += ["**Key Column:** " + ", ".join(f"`{k}`" for k in key_cols) + "  ", ""]
+
+        cat_cols = [(c.name, c.data_category) for c in display_cols if c.data_category]
+        if cat_cols:
+            parts = [f"`{name}` = {cat}" for name, cat in cat_cols]
+            lines += ["**Data Categories:** " + ", ".join(parts) + "  ", ""]
 
     calc_cols = [c for c in table.columns if c.is_calculated]
     if calc_cols:
@@ -383,6 +449,15 @@ def _table_detail_block(
         for col in calc_cols:
             if include_dax and col.dax_expression:
                 lines += [f"- **`{col.name}`**", "  ```dax", f"  {col.dax_expression}", "  ```"]
+                if tables_by_name is not None:
+                    note = _hidden_reference_note(
+                        _find_hidden_references(
+                            col.dax_expression, tables_by_name,
+                            hidden_measures_map or {}, hidden_columns_map or {}
+                        )
+                    )
+                    if note:
+                        lines += ["", f"  {note}"]
             else:
                 lines.append(f"- `{col.name}`")
         lines.append("")
@@ -393,23 +468,44 @@ def _table_detail_block(
             fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "—"
             lines.append(f"| `{item.name}` | {item.ordinal} | {fmt} |")
         lines.append("")
+        lines += [
+            "> Calculation items can be applied to any measure at report-build time "
+            "(via `SELECTEDMEASURE()`). TMDL has no static record of which measures "
+            "a given item is actually used with.",
+            "",
+        ]
         if include_dax:
             lines += ["**Item DAX**", ""]
             for item in table.calculation_items:
                 lines += [f"**`{item.name}`**", "```dax", item.dax_expression, "```", ""]
 
-    if table.measures:
-        lines += ["**Measures**", "", "| Measure | Format | Description |", "|---|---|---|"]
-        for m in table.measures:
-            fmt  = f"`{m.format_string}`" if m.format_string else "—"
-            desc = m.description or "—"
-            lines.append(f"| `{m.name}` | {fmt} | {desc} |")
+    if show_hidden:
+        display_measures = table.measures[:]
+    else:
+        display_measures = [m for m in table.measures if not m.is_hidden]
+
+    if display_measures:
+        lines += ["**Measures**", "", "| Measure | Format | Description | Hidden |", "|---|---|---|---|"]
+        for m in display_measures:
+            fmt    = f"`{m.format_string}`" if m.format_string else "—"
+            desc   = m.description or "—"
+            hidden = "Hidden" if m.is_hidden else ""
+            lines.append(f"| `{m.name}` | {fmt} | {desc} | {hidden} |")
         if include_dax:
             lines += ["", "**Measure DAX**", ""]
-            for m in table.measures:
+            for m in display_measures:
                 if not m.dax_expression.strip():
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
+                if tables_by_name is not None:
+                    note = _hidden_reference_note(
+                        _find_hidden_references(
+                            m.dax_expression, tables_by_name,
+                            hidden_measures_map or {}, hidden_columns_map or {}
+                        )
+                    )
+                    if note:
+                        lines += ["", note, ""]
 
     return "\n".join(lines)
 
@@ -419,21 +515,90 @@ def _table_details_section(
     support_tables: list[Table],
     resolved: dict[str, ResolvedSource],
     include_dax: bool,
+    tables_by_name: dict | None = None,
+    hidden_measures_map: dict | None = None,
+    hidden_columns_map: dict | None = None,
+    show_hidden: bool = True,
 ) -> str:
     lines = ["## 2. Table Details", ""]
     calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
-    all_tables = loaded_tables + calc_groups
+    if show_hidden:
+        all_tables = loaded_tables + calc_groups
+    else:
+        all_tables = [t for t in loaded_tables if not t.is_hidden] + calc_groups
     if all_tables:
         for t in all_tables:
-            lines.append(_table_detail_block(t, resolved, include_dax))
+            lines.append(_table_detail_block(t, resolved, include_dax, tables_by_name, hidden_measures_map, hidden_columns_map, show_hidden))
             lines += ["---", ""]
     else:
         lines += ["*No loaded tables.*", "", "---", ""]
+    lines.append(_column_format_string_inventory(loaded_tables + support_tables))
     return "\n".join(lines)
 
 
-def _measures_section(tables: list[Table], include_dax: bool) -> str:
-    all_measures = [(t.name, m) for t in tables for m in t.measures]
+def _column_format_string_inventory(tables: list[Table], heading: str = "Format Strings Used") -> str:
+    all_columns = [(t.name, c) for t in tables for c in t.columns]
+    if not all_columns:
+        return ""
+
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for table_name, c in all_columns:
+        key = c.format_string.strip() if c.format_string.strip() else "(none)"
+        groups.setdefault(key, []).append((c.name, table_name))
+
+    sorted_groups = sorted(groups.items(), key=lambda x: -len(x[1]))
+    total = len(all_columns)
+    unique = len(groups)
+
+    lines = [
+        "",
+        f"**{heading} ({total} total, {unique} unique)**",
+        "",
+        "| Format String | Count | Columns |",
+        "|---|---|---|",
+    ]
+    for fmt, items in sorted_groups:
+        items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
+        fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
+        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _measure_format_string_inventory(tables: list[Table]) -> str:
+    all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
+    if not all_measures:
+        return ""
+
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for table_name, m in all_measures:
+        key = m.format_string.strip() if m.format_string.strip() else "(none)"
+        groups.setdefault(key, []).append((m.name, table_name))
+
+    sorted_groups = sorted(groups.items(), key=lambda x: -len(x[1]))
+    total = len(all_measures)
+    unique = len(groups)
+
+    lines = [
+        "",
+        f"**Format Strings Used ({total} total, {unique} unique)**",
+        "",
+        "| Format String | Count | Measures |",
+        "|---|---|---|",
+    ]
+    for fmt, items in sorted_groups:
+        items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
+        fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
+        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool = True) -> str:
+    if show_hidden:
+        all_measures = [(t.name, m) for t in tables for m in t.measures]
+    else:
+        all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
     lines = ["## 3. Measures", ""]
 
     if not all_measures:
@@ -458,6 +623,7 @@ def _measures_section(tables: list[Table], include_dax: bool) -> str:
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
 
+    lines.append(_measure_format_string_inventory(tables))
     lines += ["---", ""]
     return "\n".join(lines)
 
@@ -479,24 +645,24 @@ def _relationships_section(model: SemanticModel) -> str:
 
     if active:
         lines += [
-            "| From Table | From Column | To Table | To Column | Cardinality |",
-            "|---|---|---|---|---|",
+            "| From Table | From Column | To Table | To Column | Cardinality | Cross Filter | Security Filter |",
+            "|---|---|---|---|---|---|---|",
         ]
         for r in active:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '—'} |"
+                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '—'} | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
             )
         lines.append("")
 
     if inactive:
         lines += [
             "**Inactive Relationships**", "",
-            "| From Table | From Column | To Table | To Column |",
-            "|---|---|---|---|",
+            "| From Table | From Column | To Table | To Column | Cross Filter | Security Filter |",
+            "|---|---|---|---|---|---|",
         ]
         for r in inactive:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` |"
+                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
             )
         lines.append("")
 
@@ -516,6 +682,164 @@ def _build_param_usage_map(model: SemanticModel) -> dict[str, list[str]]:
                     if expr.name not in usage[pname]:
                         usage[pname].append(expr.name)
     return usage
+
+
+# ---------------------------------------------------------------------------
+# Stage 4b — hidden cross-reference detection
+# ---------------------------------------------------------------------------
+
+def _build_hidden_reference_map(model: SemanticModel) -> tuple[dict, dict, dict]:
+    """Build lookup dicts for hidden-object detection from DAX expressions.
+
+    Returns (tables_by_name, hidden_measures, hidden_columns):
+      tables_by_name  — {table_name: Table} for every table in the model.
+      hidden_measures — {measure_name: table_name_or_list} — for each measure
+                        whose own is_hidden is True or whose owning table is
+                        hidden.  If the same measure name appears on multiple
+                        tables the value is a list of all owning tables (the
+                        ambiguity case).
+      hidden_columns  — {(table_name, column_name): True} — for each column
+                        whose own is_hidden is True or whose owning table is
+                        hidden.
+    """
+    tables_by_name: dict[str, Table] = {}
+    hidden_measures: dict = {}
+    hidden_columns: dict[tuple[str, str], bool] = {}
+
+    for table in model.tables:
+        tables_by_name[table.name] = table
+        table_hidden = table.is_hidden
+
+        for m in table.measures:
+            if m.is_hidden or table_hidden:
+                if m.name in hidden_measures:
+                    existing = hidden_measures[m.name]
+                    if isinstance(existing, list):
+                        if table.name not in existing:
+                            existing.append(table.name)
+                    else:
+                        if existing != table.name:
+                            hidden_measures[m.name] = [existing, table.name]
+                    # if same table appears twice, no change needed
+                else:
+                    hidden_measures[m.name] = table.name
+
+        for c in table.columns:
+            if c.is_hidden or table_hidden:
+                hidden_columns[(table.name, c.name)] = True
+
+    return tables_by_name, hidden_measures, hidden_columns
+
+
+def _find_hidden_references(
+    dax_expression: str,
+    tables_by_name: dict,
+    hidden_measures: dict,
+    hidden_columns: dict,
+) -> list[tuple[str, str]]:
+    """Scan a single DAX expression for references to hidden objects.
+
+    Returns a list of (display_name, owning_table) tuples, de-duplicated,
+    in encounter order.  Skips references that are ambiguous (same bare
+    measure name on multiple tables) rather than guessing.
+    """
+    dax = dax_expression
+
+    # Strip content inside double-quoted string literals to avoid false
+    # matches on bracket characters inside literal strings.
+    # Replace string contents with spaces (preserving length) so positions
+    # of non-string tokens are unchanged relative to the original.
+    cleaned = []
+    i = 0
+    while i < len(dax):
+        if dax[i] == '"':
+            j = i + 1
+            while j < len(dax):
+                if dax[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            # Replace string content (including quotes) with spaces
+            cleaned.append(" " * (j - i))
+            i = j
+        else:
+            cleaned.append(dax[i])
+            i += 1
+    stripped = "".join(cleaned)
+
+    results: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    # Pattern 1: Column references — 'TableName'[ColumnName] or TableName[ColumnName]
+    # Matches optional single-quoted or bare table name, then [ColumnName]
+    col_pattern = re.compile(
+        r"(?:'([^']+)'|([A-Za-z_]\w*)) \[ ([A-Za-z_][A-Za-z0-9_. ]*) \]",
+        re.VERBOSE,
+    )
+    for m in col_pattern.finditer(stripped):
+        table_name = m.group(1) if m.group(1) else m.group(2)
+        col_name = m.group(3).strip()
+        # Verify the reference points to a real hidden object
+        tbl = tables_by_name.get(table_name)
+        if tbl is None:
+            continue
+        is_hidden_ref = False
+        if tbl.is_hidden:
+            is_hidden_ref = True
+        elif (table_name, col_name) in hidden_columns:
+            is_hidden_ref = True
+        if is_hidden_ref:
+            display = f"{table_name}[{col_name}]"
+            key = (display, table_name)
+            if key not in seen:
+                seen.add(key)
+                results.append(key)
+
+    # Pattern 2: Bare measure references — [MeasureName]
+    # Must NOT be preceded by a table name (closing quote, letter, or ])
+    # Find all [MeasureName] tokens via regex
+    meas_pattern = re.compile(r"\[ ([A-Za-z_][A-Za-z0-9_. ()+-]*) \]", re.VERBOSE)
+    for m in meas_pattern.finditer(stripped):
+        start = m.start()
+        # Check that this is a bare reference — not preceded by a closing
+        # single-quote, closing double-quote, or alphanumeric character
+        # (which would indicate a table-qualified column reference).
+        if start > 0:
+            prev_char = stripped[start - 1]
+            if prev_char not in (" ", "\t", "\n", "\r", "(", ",", "=", "+", "-", "*", "/", ">", "<", "!", "&", "|", "~", "^", "%"):
+                # This bracket is attached to something — could be table[col]
+                # already caught by Pattern 1, or part of another syntax.
+                # Skip it.
+                continue
+        meas_name = m.group(1).strip()
+        if meas_name not in hidden_measures:
+            continue
+        entry = hidden_measures[meas_name]
+        if isinstance(entry, list):
+            # Ambiguous — multiple tables have a hidden measure with this name.
+            # Skip rather than guessing.
+            continue
+        table_name = entry
+        display = f"[{meas_name}]"
+        key = (display, table_name)
+        if key not in seen:
+            seen.add(key)
+            results.append(key)
+
+    return results
+
+
+def _hidden_reference_note(refs: list[tuple[str, str]]) -> str:
+    """Render the hidden-reference warning line for a list of refs.
+
+    Returns a single Markdown line starting with ⚠, or "" if empty.
+    """
+    if not refs:
+        return ""
+    parts = []
+    for display_name, owning_table in refs:
+        parts.append(f"`{display_name}` (in `{owning_table}`)")
+    return "⚠ References hidden: " + ", ".join(parts)
 
 
 def _security_roles_section(model: SemanticModel) -> str:
@@ -605,12 +929,15 @@ def _statistics_section(
     def names(lst):
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "—"
 
+    hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
+
     lines = [
         "## 7. Model Statistics",
         "",
         "| Category | Count | Items |",
         "|---|---|---|",
         f"| Loaded Tables | {len(loaded_tables)} | {names(loaded_tables)} |",
+        f"| Hidden Tables | {len(hidden_tables)} | {names(hidden_tables)} |",
         f"| Calculated Tables | {len(calc)} | {names(calc)} |",
         f"| Field Parameters | {len(fp)} | {names(fp)} |",
         f"| Measures-Only Tables | {len(mo)} | {names(mo)} |",
@@ -669,28 +996,69 @@ pre code { background: none; color: inherit; padding: 0; }
 
 
 def _esc(text: str) -> str:
+    a = chr(38)  # &
     return (
         str(text)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        .replace(chr(38), a + "amp;")
+        .replace(chr(60), a + "lt;")
+        .replace(chr(62), a + "gt;")
+        .replace(chr(34), a + "quot;")
     )
+
+
+class _RawHtml(str):
+    """A string that is already safe, fully-built HTML. _html_table and
+    _html_fmt_inventory_table skip escaping for cells of this type."""
+    pass
 
 
 def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") -> str:
     cls = f' class="{css_class}"' if css_class else ""
     th_cells = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body_rows = "".join(f"<tr>{''.join(f'<td>{_esc(cell)}</td>' for cell in row)}</tr>" for row in rows)
+
+    def render_cell(cell) -> str:
+        if isinstance(cell, _RawHtml):
+            return cell
+        return _esc(cell)
+
+    body_rows = "".join(
+        f"<tr>{''.join(f'<td>{render_cell(cell)}</td>' for cell in row)}</tr>"
+        for row in rows
+    )
     return f"<table{cls}><thead><tr>{th_cells}</tr></thead><tbody>{body_rows}</tbody></table>"
 
 
-def _code(text: str) -> str:
-    return f"<code>{_esc(text)}</code>"
+def _html_fmt_inventory_table(
+    title: str,
+    groups: list[tuple[str, list[tuple[str, str]]]],
+    total: int,
+    unique: int,
+    col_header: str,
+) -> str:
+    """Render a format string inventory as an HTML table."""
+    parts = [
+        f"<h4>{_esc(title)} ({total} total, {unique} unique)</h4>",
+        _html_table(
+            ["Format String", "Count", col_header],
+            [
+                (
+                    _RawHtml(f"<code>{_esc(fmt)}</code>") if fmt != "(none)" else "(none)",
+                    str(len(items)),
+                    _RawHtml(", ".join(f"<code>{_esc(name)}</code> ({_esc(tbl)})" for name, tbl in items)),
+                )
+                for fmt, items in groups
+            ],
+        ),
+    ]
+    return "\n".join(parts)
 
 
-def _pre(text: str) -> str:
-    return f"<pre><code>{_esc(text)}</code></pre>"
+def _code(text: str) -> _RawHtml:
+    return _RawHtml(f"<code>{_esc(text)}</code>")
+
+
+def _pre(text: str) -> _RawHtml:
+    return _RawHtml(f"<pre><code>{_esc(text)}</code></pre>")
 
 
 def generate_html(
@@ -700,12 +1068,17 @@ def generate_html(
 ) -> str:
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
+    show_hidden = config.get("show_hidden", True)
     today       = date.today().strftime("%d %B %Y")
 
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded  = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging = [t for t in model.tables if not t.is_loaded]
+    loaded_visible = [t for t in loaded if not t.is_hidden]
+    loaded_hidden  = [t for t in loaded if t.is_hidden]
+
+    ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
     body = [f'<div class="container">',
             f'<h1>{_esc(report_name)}</h1>',
@@ -713,19 +1086,22 @@ def generate_html(
 
     body.append('<h2>Overview</h2>')
     body.append(_html_table(["Property", "Value"], [
-        ["Owner",            _esc(config.get("owner", "-") or "-")],
-        ["Team",             _esc(config.get("team", "-") or "-")],
-        ["Refresh Schedule", _esc(config.get("refresh_schedule", "-") or "-")],
-        ["Last Generated",   today],
+        ["Owner",               _esc(config.get("owner", "-") or "-")],
+        ["Team",                _esc(config.get("team", "-") or "-")],
+        ["Refresh Schedule",    _esc(config.get("refresh_schedule", "-") or "-")],
+        ["Culture",             _esc(model.model_culture or "-")],
+        ["Compatibility Level", _esc(model.database_compatibility_level or "-")],
+        ["Data Source Version", _esc(model.model_data_source_version or "-")],
+        ["Last Generated",      today],
     ], "overview-table"))
 
     body.append('<h2>1. Data Sources</h2>')
-    body.append(f'<p>{_esc(_model_summary(loaded, staging, support, model))}</p>')
-    if loaded:
+    body.append(f'<p>{_esc(_model_summary(loaded_visible, staging, support, model))}</p>')
+    if loaded_visible:
         rows = []
-        for t in loaded:
+        for t in loaded_visible:
             rs = get_table_source(t, resolved)
-            src_type = _source_type_label(rs.source_type) if rs else "-"
+            src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
             rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
@@ -738,55 +1114,131 @@ def generate_html(
         rows = []
         for t in staging:
             rs = get_table_source(t, resolved)
-            src_type = _source_type_label(rs.source_type) if rs else "-"
+            src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
             rows.append([_code(t.name), _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
+        # Staging column format string inventory (HTML)
+        staging_col_groups: dict[str, list[tuple[str, str]]] = {}
+        for t in staging:
+            for c in t.columns:
+                key = c.format_string.strip() if c.format_string.strip() else "(none)"
+                staging_col_groups.setdefault(key, []).append((c.name, t.name))
+        if staging_col_groups:
+            staging_col_sorted = sorted(staging_col_groups.items(), key=lambda x: -len(x[1]))
+            staging_col_total = sum(len(v) for v in staging_col_groups.values())
+            staging_col_unique = len(staging_col_groups)
+            body.append(_html_fmt_inventory_table(
+                "Not Loaded Column Format Strings", staging_col_sorted, staging_col_total, staging_col_unique, "Columns"
+            ))
     else:
         body.append('<p class="empty">None.</p>')
 
     body.append('<h2>2. Table Details</h2>')
     calc_groups = [t for t in support if t.table_type == "calc_group"]
-    for t in loaded + calc_groups:
+    if show_hidden:
+        table_detail_tables = loaded + calc_groups
+    else:
+        table_detail_tables = loaded_visible + calc_groups
+    for t in table_detail_tables:
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
         if rs:
-            body.append(f'<p><strong>Source:</strong> {_esc(_source_type_label(rs.source_type))}</p>')
-            if rs.label and rs.label != _source_type_label(rs.source_type):
+            body.append(f'<p><strong>Source:</strong> {_esc(_connector_type_label(rs))}</p>')
+            if rs.label and rs.label != _connector_type_label(rs):
                 body.append(f'<p><strong>Detail:</strong> {_esc(rs.label)}</p>')
         elif t.table_type == "calculated":
             body.append('<p><strong>Source:</strong> Calculated (DAX)</p>')
             if include_dax and t.dax_partition:
                 body.append(_pre(t.dax_partition))
-        visible_cols = [c for c in t.columns if not c.is_hidden and not c.is_calculated]
-        if visible_cols:
+        elif t.table_type == "field_parameter":
+            body.append('<p><strong>Source:</strong> Field Parameter</p>')
+        elif t.table_type == "measures_only":
+            body.append('<p><strong>Source:</strong> Measures only - no data source</p>')
+        if t.is_hidden:
+            body.append('<p><strong>Hidden:</strong> Yes</p>')
+        # Columns
+        if show_hidden:
+            display_cols = [c for c in t.columns if not c.is_calculated]
+        else:
+            display_cols = [c for c in t.columns if not c.is_calculated and not c.is_hidden]
+        if display_cols:
             body.append('<h4>Columns</h4>')
-            body.append(_html_table(["Column", "Type"],
-                [[_code(c.name), _esc(_dtype(c.data_type))] for c in visible_cols]))
+            body.append(_html_table(
+                ["Column", "Type", "Format", "Summarize By", "Source Column", "Sort By", "Description", "Hidden"],
+                [[_code(c.name),
+                  _esc(_dtype(c.data_type)),
+                  _code(c.format_string) if c.format_string else "-",
+                  _esc(c.summarize_by) if c.summarize_by else "-",
+                  _code(c.source_column) if c.source_column else "-",
+                  _code(c.sort_by_column) if c.sort_by_column else "-",
+                  _esc(c.description) if c.description else "-",
+                  _esc("Hidden" if c.is_hidden else "")]
+                 for c in display_cols]))
+            key_cols = [c.name for c in display_cols if c.is_key]
+            if key_cols:
+                body.append('<p><strong>Key Column:</strong> '
+                            + ", ".join(_code(k) for k in key_cols) + '</p>')
+            cat_cols = [(c.name, c.data_category) for c in display_cols if c.data_category]
+            if cat_cols:
+                body.append('<p><strong>Data Categories:</strong> '
+                            + ", ".join(f"{_code(n)} = {_esc(cat)}" for n, cat in cat_cols)
+                            + '</p>')
+        # Calculated columns
+        calc_cols = [c for c in t.columns if c.is_calculated]
+        if calc_cols:
+            body.append('<h4>Calculated Columns</h4>')
+            for col in calc_cols:
+                if include_dax and col.dax_expression:
+                    body.append(f'<p><strong>{_code(col.name)}</strong></p>')
+                    body.append(_pre(col.dax_expression))
+                    refs = _find_hidden_references(
+                        col.dax_expression, ref_tables, ref_measures, ref_columns
+                    )
+                    if refs:
+                        parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
+                        body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
+        # Calculation items
         if t.calculation_items:
             body.append('<h4>Calculation Items</h4>')
             rows = [[_code(i.name), str(i.ordinal),
                      _code(i.format_string_expression) if i.format_string_expression else "-"]
                     for i in t.calculation_items]
             body.append(_html_table(["Item", "Ordinal", "Format String"], rows))
+            body.append('<p class="section-note">Calculation items can be applied to any measure at report-build time (via <code>SELECTEDMEASURE()</code>). TMDL has no static record of which measures a given item is actually used with.</p>')
             if include_dax:
                 for item in t.calculation_items:
                     body.append(f'<h4>{_code(item.name)}</h4>')
                     body.append(_pre(item.dax_expression))
-        if t.measures:
+        # Measures
+        if show_hidden:
+            display_measures = t.measures[:]
+        else:
+            display_measures = [m for m in t.measures if not m.is_hidden]
+        if display_measures:
             body.append('<h4>Measures</h4>')
             rows = [[_code(m.name),
                      _code(m.format_string) if m.format_string else "-",
-                     _esc(m.description) if m.description else "-"]
-                    for m in t.measures]
-            body.append(_html_table(["Measure", "Format", "Description"], rows))
+                     _esc(m.description) if m.description else "-",
+                     _esc("Hidden" if m.is_hidden else "")]
+                    for m in display_measures]
+            body.append(_html_table(["Measure", "Format", "Description", "Hidden"], rows))
             if include_dax:
-                for m in t.measures:
+                for m in display_measures:
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
+                    refs = _find_hidden_references(
+                        m.dax_expression, ref_tables, ref_measures, ref_columns
+                    )
+                    if refs:
+                        parts = [f"{_code(display)} (in {_code(tbl)})" for display, tbl in refs]
+                        body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
 
     body.append('<h2>3. Measures</h2>')
-    all_measures = [(t.name, m) for t in model.tables for m in t.measures]
+    if show_hidden:
+        all_measures = [(t.name, m) for t in model.tables for m in t.measures]
+    else:
+        all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
     if not all_measures:
         body.append('<p class="empty">No measures defined in this model.</p>')
     else:
@@ -805,6 +1257,34 @@ def generate_html(
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
 
+    # Measure format string inventory (HTML)
+    if all_measures:
+        meas_groups: dict[str, list[tuple[str, str]]] = {}
+        for tn, m in all_measures:
+            key = m.format_string.strip() if m.format_string.strip() else "(none)"
+            meas_groups.setdefault(key, []).append((m.name, tn))
+        if meas_groups:
+            meas_sorted = sorted(meas_groups.items(), key=lambda x: -len(x[1]))
+            meas_total = sum(len(v) for v in meas_groups.values())
+            meas_unique = len(meas_groups)
+            body.append(_html_fmt_inventory_table(
+                "Measure Format Strings", meas_sorted, meas_total, meas_unique, "Measures"
+            ))
+
+    # Column format string inventory (HTML)
+    col_groups: dict[str, list[tuple[str, str]]] = {}
+    for t in loaded + support:
+        for c in t.columns:
+            key = c.format_string.strip() if c.format_string.strip() else "(none)"
+            col_groups.setdefault(key, []).append((c.name, t.name))
+    if col_groups:
+        col_sorted = sorted(col_groups.items(), key=lambda x: -len(x[1]))
+        col_total = sum(len(v) for v in col_groups.values())
+        col_unique = len(col_groups)
+        body.append(_html_fmt_inventory_table(
+            "Column Format Strings", col_sorted, col_total, col_unique, "Columns"
+        ))
+
     body.append('<h2>4. Relationships</h2>')
     visible_rels = [
         r for r in model.relationships
@@ -817,16 +1297,18 @@ def generate_html(
         inactive = [r for r in visible_rels if not r.is_active]
         if active:
             body.append(_html_table(
-                ["From Table", "From Column", "To Table", "To Column", "Cardinality"],
+                ["From Table", "From Column", "To Table", "To Column", "Cardinality", "Cross Filter", "Security Filter"],
                 [[_code(r.from_table), _code(r.from_column),
-                  _code(r.to_table),   _code(r.to_column), _esc(r.cardinality or "-")]
+                  _code(r.to_table),   _code(r.to_column), _esc(r.cardinality or "-"),
+                  _esc(r.cross_filtering_behavior), _esc(r.security_filtering_behavior)]
                  for r in active]))
         if inactive:
             body.append('<h3>Inactive Relationships</h3>')
             body.append(_html_table(
-                ["From Table", "From Column", "To Table", "To Column"],
+                ["From Table", "From Column", "To Table", "To Column", "Cross Filter", "Security Filter"],
                 [[_code(r.from_table), _code(r.from_column),
-                  _code(r.to_table),   _code(r.to_column)]
+                  _code(r.to_table),   _code(r.to_column),
+                  _esc(r.cross_filtering_behavior), _esc(r.security_filtering_behavior)]
                  for r in inactive]))
 
     body.append('<h2>5. Security Roles</h2>')
@@ -851,7 +1333,7 @@ def generate_html(
     else:
         usage_map = _build_param_usage_map(model)
         rows = [[_code(p.name), _esc(p.param_type), _code(p.value),
-                 ", ".join(_code(e) for e in usage_map.get(p.name, [])) or "-"]
+                 _RawHtml(", ".join(_code(e) for e in usage_map.get(p.name, []))) or "-"]
                 for p in model.m_parameters]
         body.append(_html_table(["Parameter", "Type", "Value", "Used By"], rows))
         body.append('<p class="section-note">Only direct parameter references in connector calls are shown.</p>')
@@ -870,9 +1352,10 @@ def generate_html(
     cg        = [t for t in support if t.table_type == "calc_group"]
     all_meas  = [m for t in model.tables for m in t.measures]
     calc_cols = [c for t in model.tables for c in t.columns if c.is_calculated]
-    def _names(lst): return ", ".join(_code(t.name) for t in lst) if lst else "-"
+    def _names(lst): return _RawHtml(", ".join(_code(t.name) for t in lst)) if lst else "-"
     body.append(_html_table(["Category", "Count", "Items"], [
-        ["Loaded Tables",        str(len(loaded)),               _names(loaded)],
+        ["Loaded Tables",        str(len(loaded_visible)),       _names(loaded_visible)],
+        ["Hidden Tables",        str(len(loaded_hidden)),        _names(loaded_hidden)],
         ["Calculated Tables",    str(len(calc)),                 _names(calc)],
         ["Field Parameters",     str(len(fp)),                   _names(fp)],
         ["Measures-Only Tables", str(len(mo)),                   _names(mo)],
@@ -908,18 +1391,24 @@ def generate_readme(
 ) -> str:
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
+    show_hidden = config.get("show_hidden", True)
 
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging  = [t for t in model.tables if not t.is_loaded]
+    loaded_visible = [t for t in loaded if not t.is_hidden]
+    # loaded_hidden is no longer used — hidden tables render inline in Table Details.
+    # loaded_visible is still used for Data Sources and Statistics (visible-only).
+
+    ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
     sections = [
         f"# {report_name}\n",
-        _overview_section(config),
-        _data_sources_section(loaded, staging, support, resolved, model),
-        _table_details_section(loaded, support, resolved, include_dax),
-        _measures_section(model.tables, include_dax),
+        _overview_section(config, model),
+        _data_sources_section(loaded_visible, staging, support, resolved, model),
+        _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
+        _measures_section(model.tables, include_dax, show_hidden),
         _relationships_section(model),
         _security_roles_section(model),
         _m_parameters_section(model),
@@ -929,7 +1418,7 @@ def generate_readme(
     if unresolved:
         sections.append(unresolved)
 
-    sections.append(_statistics_section(model, loaded, support, staging))
+    sections.append(_statistics_section(model, loaded_visible, support, staging))
 
     today = date.today().strftime("%d %B %Y")
     sections.append(f"*Generated by tmdl-lens · {today}*\n")

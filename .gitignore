@@ -4,8 +4,16 @@ config.json
 AGENTS.md
 CLAUDE.md
 
-# Throwaway debug scripts
+# Local AI tooling — personal, not committed
+.clinerules
+AGENTS.md
+CLAUDE.md
+
+# Throwaway debug/test scripts — never commit these
 debug*.py
+
+# Scratch output from verification runs — never commit these
+$Temp/
 
 # PyInstaller build output
 build/

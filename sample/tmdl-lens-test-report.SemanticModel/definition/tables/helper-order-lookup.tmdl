@@ -1,0 +1,42 @@
+// Hidden loaded helper table — isHidden set directly on the table header
+// Parser must detect this via the isHidden tree-parse (not changedProperty),
+// exclude it from ## 2. Table Details, and render it under ## 2b. Hidden Tables
+/// Internal lookup table joining order status codes to staging data. Not exposed to report consumers.
+table helper-order-lookup
+	isHidden
+	lineageTag: 00000002-0000-0000-0000-000000000007
+
+	column order_id
+		dataType: int64
+		formatString: 0
+		lineageTag: 00000003-0000-0000-0000-000000000040
+		summarizeBy: none
+		sourceColumn: order_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column status_code
+		dataType: string
+		lineageTag: 00000003-0000-0000-0000-000000000041
+		summarizeBy: none
+		sourceColumn: status
+
+		annotation SummarizationSetBy = Automatic
+
+	measure 'Open Order Count' = COUNTROWS('helper-order-lookup')
+		formatString: 0
+		lineageTag: 00000004-0000-0000-0000-000000000010
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition helper-order-lookup = m
+		mode: import
+		queryGroup: Source
+		source =
+				let
+				    Source = #"source-sql-staging"
+				in
+				    Source
+
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Exception

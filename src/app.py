@@ -1146,6 +1146,7 @@ class App(ctk.CTk):
                 "team":             report_meta["team"],
                 "refresh_schedule": report_meta["refresh_schedule"],
                 "include_dax":      include_dax,
+                "show_hidden":      report_meta["show_hidden"],
             }
 
             content      = generate_html(model, resolved, gen_config) if fmt == "html" \
@@ -1246,6 +1247,7 @@ class App(ctk.CTk):
                     "team":             report_meta["team"],
                     "refresh_schedule": report_meta["refresh_schedule"],
                     "include_dax":      include_dax,
+                    "show_hidden":      report_meta["show_hidden"],
                 }
 
                 content = generate_html(model, resolved, gen_config) if fmt == "html" \
