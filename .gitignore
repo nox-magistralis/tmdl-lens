@@ -19,6 +19,7 @@ $Temp/
 build/
 dist/
 *.spec
+!tmdl-lens.spec
 
 # Python bytecode
 __pycache__/
