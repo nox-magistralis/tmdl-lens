@@ -286,9 +286,8 @@ class App(ctk.CTk):
         self._toggle_row(
             frame,
             "Skip reports with no TMDL changes",
-            "Compare file hash - skip if unchanged since last run  (coming soon)",
+            "Compare file hash - skip if unchanged since last run",
             self._skip_var,
-            disabled=True,
         )
 
         self._divider(frame)
@@ -707,7 +706,7 @@ class App(ctk.CTk):
         self._overwrite_var.set(c.get("overwrite_readme", False))
         self._format_var.set("MD" if c.get("output_format", "html") == "md" else "HTML")
         self._dax_var.set(c.get("include_dax", True))
-        self._skip_var.set(False)  # disabled toggle, value not loaded from config
+        self._skip_var.set(c.get("skip_unchanged", True))
         self._watch_var.set(False)  # always off on startup — user enables manually
         self._debounce_var.set(f"{c.get('watch_debounce', 10)} sec")
         self._owner_var.set(c.get("owner", ""))
@@ -732,6 +731,7 @@ class App(ctk.CTk):
             "owner":            self._owner_var.get().strip(),
             "team":             self._team_var.get().strip(),
             "refresh_schedule": self._refresh_var.get().strip(),
+            "file_hashes":      self.config_data.get("file_hashes", {}),
         }
 
     # ── Browse handlers ───────────────────────────────────────────────────────
@@ -876,10 +876,13 @@ class App(ctk.CTk):
 
         pipeline = Pipeline(
             config=pipeline_config,
+            saved_hashes=config.get("file_hashes", {}),
             logger=lambda msg, level: self.log(msg, level),
         )
 
         result = pipeline.run_single(pbip_path)
+        if result.content_hash:
+            self.after(0, lambda h=result.content_hash, n=pbip_name: self._persist_hashes({n: h}))
         if result.success:
             now = datetime.now().strftime("%H:%M:%S")
             self.after(0, lambda: self._last_run_label.configure(
@@ -902,6 +905,7 @@ class App(ctk.CTk):
 
         pipeline = Pipeline(
             config=pipeline_config,
+            saved_hashes=config.get("file_hashes", {}),
             logger=lambda msg, level: self.log(msg, level),
         )
 
@@ -918,6 +922,14 @@ class App(ctk.CTk):
         self.after(0, lambda: self._last_run_label.configure(
             text=f"last run - {now}"
         ))
+        self.after(0, lambda: self._persist_hashes(result.hashes))
+
+    def _persist_hashes(self, new_hashes: dict):
+        """Merge freshly computed hashes into config.json (main thread only)."""
+        if not new_hashes:
+            return
+        self.config_data.setdefault("file_hashes", {}).update(new_hashes)
+        save_config(self._collect_config())
 
     # -- Log -------------------------------------------------------------------
 

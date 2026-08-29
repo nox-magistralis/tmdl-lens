@@ -11,6 +11,8 @@ Usable from:
   - AI agents / MCP servers
 """
 
+import hashlib
+import json
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -52,6 +54,7 @@ class SingleResult:
     output_path: str = ""
     table_count: int = 0
     measure_count: int = 0
+    content_hash: str = ""
 
 
 @dataclass
@@ -63,6 +66,7 @@ class PipelineResult:
     skipped_count: int = 0
     total_count: int = 0
     results: list = field(default_factory=list)
+    hashes: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,36 @@ def _build_gen_config(report_name: str, config: PipelineConfig) -> dict:
         "refresh_schedule": config.refresh_schedule,
         "include_dax":      config.include_dax,
     }
+
+
+def _content_hash(model_dir: str, config: PipelineConfig) -> str:
+    """SHA256 of the report's TMDL content plus generator-relevant config."""
+    h = hashlib.sha256()
+    tmdl_files = []
+    for root, _, files in os.walk(model_dir):
+        for f in files:
+            if f.endswith(".tmdl"):
+                tmdl_files.append(os.path.join(root, f))
+    tmdl_files.sort()
+    for path in tmdl_files:
+        rel = os.path.relpath(path, model_dir)
+        h.update(rel.encode("utf-8"))
+        h.update(b"\x00")
+        with open(path, "rb") as fh:
+            h.update(fh.read())
+        h.update(b"\x00")
+    config_blob = json.dumps(
+        {
+            "include_dax":      config.include_dax,
+            "output_format":    config.output_format,
+            "owner":            config.owner,
+            "team":             config.team,
+            "refresh_schedule": config.refresh_schedule,
+        },
+        sort_keys=True,
+    )
+    h.update(config_blob.encode("utf-8"))
+    return h.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +210,8 @@ class Pipeline:
         for pbip_path in runnable:
             single = self.run_single(pbip_path)
             result.results.append(single)
+            if single.content_hash:
+                result.hashes[single.report_name] = single.content_hash
             if single.success:
                 result.success_count += 1
             elif single.skipped:
@@ -205,6 +241,14 @@ class Pipeline:
         out_path = _get_output_path(
             pbip_dir, pbip_name, self.config.output_format, self.config.output_folder
         )
+
+        current_hash = ""
+        if self.config.skip_unchanged:
+            current_hash = _content_hash(model_dir, self.config)
+            if self.saved_hashes.get(pbip_name) == current_hash and os.path.exists(out_path):
+                self.logger(f"{pbip_name} - skipped (unchanged)", "msg")
+                return SingleResult(report_name=pbip_name, skipped=True,
+                                    skip_reason="unchanged")
 
         if os.path.exists(out_path) and not self.config.overwrite:
             self.logger(f"{pbip_name} - skipped (file exists)", "msg")
@@ -243,6 +287,7 @@ class Pipeline:
                 output_path=out_path,
                 table_count=table_count,
                 measure_count=measure_count,
+                content_hash=current_hash,
             )
 
         except Exception as e:

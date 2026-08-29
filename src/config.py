@@ -26,6 +26,7 @@ DEFAULTS = {
     "owner":            "",
     "team":             "",
     "refresh_schedule": "",
+    "file_hashes":      {},
     "features": {
         "watcher": True,
     },
