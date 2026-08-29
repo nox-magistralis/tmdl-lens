@@ -19,9 +19,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import load as load_config, save as save_config
 import src.workspace_config as ws_cfg
-from src.tmdl_parser import parse_semantic_model
-from src.source_resolver import resolve_sources
-from src.readme_generator import generate_readme, generate_html
 from src.pipeline import Pipeline, PipelineConfig, PipelineResult
 
 try:
@@ -35,7 +32,7 @@ except ImportError:
 # Theme
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.2.1"
 
 COLORS = {
     "bg":          "#1a1d26",
@@ -757,6 +754,12 @@ class App(ctk.CTk):
             text_color=COLORS["text_3"],
         ).grid(row=0, column=12, padx=(0, 14), pady=0, sticky="e")
 
+        ctk.CTkLabel(
+            bar, text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family="Courier New", size=11),
+            text_color=COLORS["text_3"],
+        ).grid(row=0, column=13, padx=(0, 14), pady=0, sticky="e")
+
     # ── UI component helpers ──────────────────────────────────────────────────
 
     def _section_header(self, parent, title: str, required: bool = False,
@@ -1121,7 +1124,7 @@ class App(ctk.CTk):
             output_folder=config.get("output_folder", ""),
             include_dax=config.get("include_dax", True),
             output_format=config.get("output_format", "html"),
-            overwrite=config.get("overwrite_readme", False),
+            overwrite=True,
             skip_unchanged=config.get("skip_unchanged", False),
         )
 

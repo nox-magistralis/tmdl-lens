@@ -81,6 +81,7 @@ tmdl-lens/
   requirements.txt
   src/
     app.py                  CustomTkinter UI
+    pipeline.py             documentation generation pipeline
     tmdl_parser.py          TMDL file parser
     source_resolver.py      M expression source resolver
     readme_generator.py     README markdown generator
