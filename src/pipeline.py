@@ -16,7 +16,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-import src.workspace_config as ws_cfg
 from src.tmdl_parser import parse_semantic_model
 from src.source_resolver import resolve_sources
 from src.readme_generator import generate_readme, generate_html
@@ -36,6 +35,9 @@ class PipelineConfig:
     output_format: str = "html"  # "html" | "md"
     overwrite: bool = False
     skip_unchanged: bool = False
+    owner: str = ""
+    team: str = ""
+    refresh_schedule: str = ""
 
 
 @dataclass
@@ -106,15 +108,14 @@ def _get_output_path(
     return os.path.join(pbip_dir, out_filename)
 
 
-def _build_gen_config(report_name: str, report_meta: dict, config: PipelineConfig) -> dict:
-    """Build the generator config dict from workspace metadata + pipeline config."""
+def _build_gen_config(report_name: str, config: PipelineConfig) -> dict:
+    """Build the generator config dict for one report."""
     return {
         "report_name":      report_name,
-        "owner":            report_meta.get("owner", ""),
-        "team":             report_meta.get("team", ""),
-        "refresh_schedule": report_meta.get("refresh_schedule", ""),
+        "owner":            config.owner,
+        "team":             config.team,
+        "refresh_schedule": config.refresh_schedule,
         "include_dax":      config.include_dax,
-        "show_hidden":      report_meta.get("show_hidden", True),
     }
 
 
@@ -134,12 +135,10 @@ class Pipeline:
     def __init__(
         self,
         config: PipelineConfig,
-        ws_config: Optional[dict] = None,
         saved_hashes: Optional[dict] = None,
         logger: Callable[[str, str], None] = None,
     ):
         self.config = config
-        self.ws_config = ws_config or {}
         self.saved_hashes = saved_hashes or {}
         self.logger = logger or (lambda msg, level: None)
 
@@ -226,8 +225,7 @@ class Pipeline:
             resolved = resolve_sources(
                 model.source_expressions, model.m_parameters, tables=model.tables
             )
-            report_meta = ws_cfg.merge_report(self.ws_config, pbip_name)
-            gen_config  = _build_gen_config(pbip_name, report_meta, self.config)
+            gen_config = _build_gen_config(pbip_name, self.config)
 
             content = generate_html(model, resolved, gen_config) \
                 if self.config.output_format == "html" \

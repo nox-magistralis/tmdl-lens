@@ -18,7 +18,6 @@ import customtkinter as ctk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import load as load_config, save as save_config
-import src.workspace_config as ws_cfg
 from src.pipeline import Pipeline, PipelineConfig, PipelineResult
 
 try:
@@ -71,7 +70,6 @@ class App(ctk.CTk):
         super().__init__()
 
         self.config_data = load_config()
-        self._ws_config: dict = dict(ws_cfg.DEFAULTS)
         self._last_run: str = "never"
         self._run_thread: threading.Thread | None = None
         self._watcher: TmdlWatcher | None = None
@@ -88,10 +86,8 @@ class App(ctk.CTk):
         self._loading = False
         self._auto_save_config()
 
-        # Load workspace config on startup — watcher is never auto-started
         saved_folder = self.config_data.get("reports_folder", "").strip()
         if saved_folder and os.path.isdir(saved_folder):
-            self._load_workspace_config(saved_folder)
             self._scan_reports(saved_folder)
         self.after(0, self._set_watcher_idle)
 
@@ -180,105 +176,23 @@ class App(ctk.CTk):
     def _build_main(self):
         main = ctk.CTkFrame(self, corner_radius=0, fg_color=COLORS["bg"])
         main.grid(row=0, column=1, sticky="nsew")
-        main.grid_rowconfigure(0, weight=0)  # tab bar
-        main.grid_rowconfigure(1, weight=1)  # content
-        main.grid_rowconfigure(2, weight=0)  # action bar
+        main.grid_rowconfigure(0, weight=1)  # content
+        main.grid_rowconfigure(1, weight=0)  # action bar
         main.grid_columnconfigure(0, weight=1)
 
-        self._build_tabbar(main)
         self._build_content(main)
         self._build_actionbar(main)
-
-    # ── Tab bar ───────────────────────────────────────────────────────────────
-
-    def _build_tabbar(self, parent):
-        tabbar = ctk.CTkFrame(
-            parent, height=36, corner_radius=0,
-            fg_color=COLORS["bg"],
-            border_width=0,
-        )
-        tabbar.grid(row=0, column=0, sticky="ew")
-        tabbar.grid_columnconfigure(10, weight=1)
-
-        # Separator line under tab bar
-        sep = ctk.CTkFrame(
-            parent, height=1, corner_radius=0,
-            fg_color=COLORS["border"],
-        )
-        sep.grid(row=0, column=0, sticky="ews")
-
-        self._tab_btns = {}
-        tabs = ["configure", "metadata"]
-        for i, tab in enumerate(tabs):
-            btn = ctk.CTkButton(
-                tabbar, text=tab,
-                width=110, height=30,
-                corner_radius=5,
-                font=ctk.CTkFont(size=14),
-                fg_color=COLORS["surface"] if i == 0 else "transparent",
-                text_color=COLORS["text_1"] if i == 0 else COLORS["text_2"],
-                border_width=1 if i == 0 else 0,
-                border_color=COLORS["border"],
-                hover_color=COLORS["border"],
-                command=lambda t=tab: self._tab_click(t),
-            )
-            btn.grid(row=0, column=i, padx=(8 if i == 0 else 2, 0), pady=4)
-            self._tab_btns[tab] = btn
-
-        self._active_tab = "configure"
-
-    def _tab_click(self, tab: str):
-        self._active_tab = tab
-        for t, btn in self._tab_btns.items():
-            if t == tab:
-                btn.configure(
-                    fg_color=COLORS["surface"],
-                    text_color=COLORS["text_1"],
-                    border_width=1,
-                    border_color=COLORS["border"],
-                )
-            else:
-                btn.configure(
-                    fg_color="transparent",
-                    text_color=COLORS["text_2"],
-                    border_width=0,
-                )
-        # Show/hide tab frames
-        for t, frame in self._tab_frames.items():
-            if t == tab:
-                frame.grid()
-            else:
-                frame.grid_remove()
 
     # ── Content ───────────────────────────────────────────────────────────────
 
     def _build_content(self, parent):
         content = ctk.CTkFrame(parent, corner_radius=0, fg_color=COLORS["bg"])
-        content.grid(row=1, column=0, sticky="nsew")
+        content.grid(row=0, column=0, sticky="nsew")
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=1)
         content.grid_columnconfigure(1, weight=0)  # log panel
 
-        # Tab frames container (left side)
-        tab_container = ctk.CTkFrame(content, corner_radius=0, fg_color=COLORS["bg"])
-        tab_container.grid(row=0, column=0, sticky="nsew")
-
-        self._tab_frames = {}
-        self._build_tab_configure(tab_container)
-        self._build_tab_metadata(tab_container)
-        self._build_tab_schedule(tab_container)
-
-        # Show configure, hide others
-        self._tab_frames["configure"].grid(row=0, column=0, sticky="nsew")
-        self._tab_frames["metadata"].grid(row=0, column=0, sticky="nsew")
-        self._tab_frames["schedule"].grid(row=0, column=0, sticky="nsew")
-        self._tab_frames["metadata"].grid_remove()
-        self._tab_frames["schedule"].grid_remove()
-
-        tab_container.grid_rowconfigure(0, weight=1)
-        tab_container.grid_columnconfigure(0, weight=1)
-
-        # Log panel (right side)
+        self._build_tab_configure(content)
         self._build_log_panel(content)
 
     # ── Configure tab ─────────────────────────────────────────────────────────
@@ -290,7 +204,7 @@ class App(ctk.CTk):
             scrollbar_button_color=COLORS["border_hi"],
             scrollbar_button_hover_color=COLORS["border_hi"],
         )
-        self._tab_frames["configure"] = frame
+        frame.grid(row=0, column=0, sticky="nsew")
 
         pad = {"padx": 22, "pady": (0, 0)}
 
@@ -427,28 +341,17 @@ class App(ctk.CTk):
         )
         self._watch_count_label.pack(side="right", padx=12, pady=8)
 
-        ctk.CTkFrame(frame, height=20, fg_color="transparent").pack(fill="x")
+        self._divider(frame)
 
-    # ── Metadata tab ──────────────────────────────────────────────────────────
+        self._section_header(frame, "Documentation metadata (optional)")
 
-    def _build_tab_metadata(self, parent):
-        frame = ctk.CTkScrollableFrame(
-            parent, corner_radius=0,
-            fg_color=COLORS["bg"],
-            scrollbar_button_color=COLORS["border_hi"],
-            scrollbar_button_hover_color=COLORS["border_hi"],
-        )
-        self._tab_frames["metadata"] = frame
-
-        self._section_header(frame, "Report Metadata")
-
-        self._field_label(frame, "Owner name")
+        self._field_label(frame, "Owner")
         self._owner_var = tk.StringVar()
         self._text_entry_row(frame, self._owner_var, "e.g. John Smith")
 
         ctk.CTkFrame(frame, height=8, fg_color="transparent").pack(fill="x")
 
-        self._field_label(frame, "Team name")
+        self._field_label(frame, "Team")
         self._team_var = tk.StringVar()
         self._text_entry_row(frame, self._team_var, "e.g. BI Team")
 
@@ -458,116 +361,15 @@ class App(ctk.CTk):
         self._refresh_var = tk.StringVar()
         self._text_entry_row(frame, self._refresh_var, "e.g. Daily at 06:00 UTC")
 
-        self._divider(frame)
-
-        # Save button — writes to tmdl-lens.json, not config.json
-        ctk.CTkButton(
-            frame, text="Save metadata",
-            width=140, height=34,
-            corner_radius=6,
-            fg_color=COLORS["surface"],
-            hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_1"],
-            border_width=1, border_color=COLORS["border"],
-            font=ctk.CTkFont(size=13),
-            command=self._on_save_metadata,
-        ).pack(anchor="w", padx=22, pady=(16, 8))
-
-        # Shows which tmdl-lens.json is currently active
-        self._ws_path_label = ctk.CTkLabel(
-            frame, text="no workspace loaded",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_2"],
-            justify="left",
-            wraplength=480,
-        )
-        self._ws_path_label.pack(anchor="w", padx=22, pady=(0, 4))
-
         ctk.CTkLabel(
             frame,
-            text="These values apply to all reports in the workspace as defaults.\nPer-report overrides can be added directly in tmdl-lens.json.",
+            text="Optional - leave blank to omit from the generated documentation.",
             font=ctk.CTkFont(size=12),
             text_color=COLORS["text_2"],
             justify="left",
         ).pack(anchor="w", padx=22, pady=(4, 20))
 
-    # ── Schedule tab ──────────────────────────────────────────────────────────
-
-    def _build_tab_schedule(self, parent):
-        frame = ctk.CTkScrollableFrame(
-            parent, corner_radius=0,
-            fg_color=COLORS["bg"],
-            scrollbar_button_color=COLORS["border_hi"],
-            scrollbar_button_hover_color=COLORS["border_hi"],
-        )
-        self._tab_frames["schedule"] = frame
-
-        self._section_header(frame, "Task Scheduler")
-
-        self._schedule_var = tk.BooleanVar(value=False)
-        self._toggle_row(
-            frame,
-            "Register with Windows Task Scheduler",
-            "Run automatically at the specified time",
-            self._schedule_var,
-        )
-
-        ctk.CTkFrame(frame, height=8, fg_color="transparent").pack(fill="x")
-
-        # Day + time row
-        sched_row = ctk.CTkFrame(
-            frame,
-            fg_color=COLORS["surface"],
-            border_width=1, border_color=COLORS["border"],
-            corner_radius=6,
-        )
-        sched_row.pack(fill="x", padx=22, pady=(0, 0))
-
-        ctk.CTkLabel(
-            sched_row, text="day",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_1"],
-        ).pack(side="left", padx=(12, 8), pady=10)
-
-        self._sched_day_var = tk.StringVar(value="Mon")
-        ctk.CTkOptionMenu(
-            sched_row,
-            values=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Daily"],
-            variable=self._sched_day_var,
-            width=80, height=26,
-            fg_color=COLORS["bg"],
-            button_color=COLORS["border"],
-            button_hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_1"],
-            font=ctk.CTkFont(size=13),
-        ).pack(side="left", pady=10)
-
-        ctk.CTkLabel(
-            sched_row, text="time",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_1"],
-        ).pack(side="left", padx=(16, 8), pady=10)
-
-        self._sched_time_var = tk.StringVar(value="08:00")
-        ctk.CTkEntry(
-            sched_row,
-            textvariable=self._sched_time_var,
-            width=70, height=26,
-            fg_color=COLORS["bg"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_1"],
-            font=ctk.CTkFont(size=13),
-        ).pack(side="left", pady=10)
-
-        self._divider(frame)
-
-        ctk.CTkLabel(
-            frame,
-            text="Task Scheduler registration requires administrator privileges.\nThe task will run tmdl-lens silently on login and at the scheduled time.",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_2"],
-            justify="left",
-        ).pack(anchor="w", padx=22, pady=(0, 20))
+        ctk.CTkFrame(frame, height=20, fg_color="transparent").pack(fill="x")
 
     # ── Log panel ─────────────────────────────────────────────────────────────
 
@@ -651,7 +453,7 @@ class App(ctk.CTk):
             fg_color=COLORS["bg"],
             border_width=1, border_color=COLORS["border"],
         )
-        bar.grid(row=2, column=0, sticky="ew")
+        bar.grid(row=1, column=0, sticky="ew")
         bar.grid_columnconfigure(10, weight=1)
 
         # Run Now
@@ -724,20 +526,6 @@ class App(ctk.CTk):
             text_color=COLORS["text_2"],
         )
         self._watcher_label.grid(row=0, column=1, padx=(0, 12), pady=0)
-
-        # Schedule status
-        ctk.CTkLabel(
-            bar, text="●",
-            font=ctk.CTkFont(size=9),
-            text_color=COLORS["amber"],
-        ).grid(row=0, column=2, padx=(0, 2), pady=0)
-
-        self._schedule_label = ctk.CTkLabel(
-            bar, text="schedule · not configured",
-            font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_2"],
-        )
-        self._schedule_label.grid(row=0, column=3, padx=(0, 12), pady=0)
 
         # Report count
         self._report_count_label = ctk.CTkLabel(
@@ -922,9 +710,9 @@ class App(ctk.CTk):
         self._skip_var.set(False)  # disabled toggle, value not loaded from config
         self._watch_var.set(False)  # always off on startup — user enables manually
         self._debounce_var.set(f"{c.get('watch_debounce', 10)} sec")
-        self._schedule_var.set(c.get("schedule_enabled", False))
-        self._sched_day_var.set(c.get("schedule_day", "Mon"))
-        self._sched_time_var.set(c.get("schedule_time", "08:00"))
+        self._owner_var.set(c.get("owner", ""))
+        self._team_var.set(c.get("team", ""))
+        self._refresh_var.set(c.get("refresh_schedule", ""))
 
     def _collect_config(self) -> dict:
         debounce_raw = self._debounce_var.get().replace(" sec", "")
@@ -940,11 +728,10 @@ class App(ctk.CTk):
             "output_format":    self._format_var.get().lower(),
             "include_dax":      self._dax_var.get(),
             "skip_unchanged":   self._skip_var.get(),
-            "watch_enabled":    self._watch_var.get(),
             "watch_debounce":   debounce,
-            "schedule_enabled": self._schedule_var.get(),
-            "schedule_day":     self._sched_day_var.get(),
-            "schedule_time":    self._sched_time_var.get().strip(),
+            "owner":            self._owner_var.get().strip(),
+            "team":             self._team_var.get().strip(),
+            "refresh_schedule": self._refresh_var.get().strip(),
         }
 
     # ── Browse handlers ───────────────────────────────────────────────────────
@@ -954,7 +741,6 @@ class App(ctk.CTk):
         if folder:
             self._reports_var.set(folder)
             self._scan_reports(folder)
-            self._load_workspace_config(folder)  # may write tmdl-lens.json
             if self._watch_var.get():
                 self.after(200, lambda: self._start_watcher(folder))
 
@@ -976,49 +762,6 @@ class App(ctk.CTk):
         )
 
     # ── Action handlers ───────────────────────────────────────────────────────
-
-    def _load_workspace_config(self, folder: str):
-        """Load tmdl-lens.json from folder, populate Metadata tab, log the result."""
-        config, error = ws_cfg.load(folder)
-        self._ws_config = config
-
-        if error:
-            self.log(f"tmdl-lens.json: {error}", "warn")
-            self.log("metadata fields cleared — fix the file and re-select the folder", "warn")
-            self._owner_var.set("")
-            self._team_var.set("")
-            self._refresh_var.set("")
-            self._ws_path_label.configure(
-                text=f"⚠ {ws_cfg.path(folder)}  (load error)",
-                text_color=COLORS["amber"],
-            )
-            return
-
-        self._owner_var.set(config.get("owner", ""))
-        self._team_var.set(config.get("team", ""))
-        self._refresh_var.set(config.get("refresh_schedule", ""))
-        self._ws_path_label.configure(
-            text=ws_cfg.path(folder),
-            text_color=COLORS["text_3"],
-        )
-        self.log(f"workspace config loaded: {ws_cfg.path(folder)}", "ok")
-
-    def _on_save_metadata(self):
-        """Write Metadata tab fields back to tmdl-lens.json."""
-        folder = self._reports_var.get().strip()
-        if not folder:
-            self.log("no reports folder set — cannot save metadata", "err")
-            return
-
-        self._ws_config["owner"]            = self._owner_var.get().strip()
-        self._ws_config["team"]             = self._team_var.get().strip()
-        self._ws_config["refresh_schedule"] = self._refresh_var.get().strip()
-
-        ok, error = ws_cfg.save(folder, self._ws_config)
-        if ok:
-            self.log("metadata saved to tmdl-lens.json", "ok")
-        else:
-            self.log(f"failed to save metadata: {error}", "err")
 
     def _on_save_config(self):
         self.config_data = self._collect_config()
@@ -1126,11 +869,13 @@ class App(ctk.CTk):
             output_format=config.get("output_format", "html"),
             overwrite=True,
             skip_unchanged=config.get("skip_unchanged", False),
+            owner=config.get("owner", ""),
+            team=config.get("team", ""),
+            refresh_schedule=config.get("refresh_schedule", ""),
         )
 
         pipeline = Pipeline(
             config=pipeline_config,
-            ws_config=self._ws_config,
             logger=lambda msg, level: self.log(msg, level),
         )
 
@@ -1150,11 +895,13 @@ class App(ctk.CTk):
             output_format=config.get("output_format", "html"),
             overwrite=config.get("overwrite_readme", False),
             skip_unchanged=config.get("skip_unchanged", False),
+            owner=config.get("owner", ""),
+            team=config.get("team", ""),
+            refresh_schedule=config.get("refresh_schedule", ""),
         )
 
         pipeline = Pipeline(
             config=pipeline_config,
-            ws_config=self._ws_config,
             logger=lambda msg, level: self.log(msg, level),
         )
 
