@@ -58,7 +58,7 @@ A `config.json` file will be created alongside the executable on first run to st
 
 If no output folder is set, each `README.md` is written next to its `.pbip` file. If a separate output folder is set, each report gets its own named subfolder inside it — for example `docs/SalesReport/README.md`, `docs/FinanceReport/README.md` — so multiple reports never collide.
 
-Workspace metadata (owner, team, refresh schedule) is set under the **Metadata** tab and written to a `tmdl-lens.json` file inside the reports folder. Per-report overrides can be added directly in that file.
+Optional documentation metadata (owner, team, refresh schedule) is set in the **Configure** tab and stored in `config.json` next to the app. Values left blank are omitted from the generated output.
 
 ---
 
@@ -86,8 +86,7 @@ tmdl-lens/
     source_resolver.py      M expression source resolver
     readme_generator.py     README markdown generator
     watcher.py              file watcher (watchdog)
-    config.py               UI config read/write (config.json)
-    workspace_config.py     workspace metadata read/write (tmdl-lens.json)
+    config.py               app settings + documentation metadata (config.json)
   sample/                   sample .pbip project for testing
   tests/                    unit tests
 ```
