@@ -22,6 +22,7 @@ import src.workspace_config as ws_cfg
 from src.tmdl_parser import parse_semantic_model
 from src.source_resolver import resolve_sources
 from src.readme_generator import generate_readme, generate_html
+from src.pipeline import Pipeline, PipelineConfig, PipelineResult
 
 try:
     from src.watcher import TmdlWatcher, WATCHER_AVAILABLE
@@ -1043,7 +1044,7 @@ class App(ctk.CTk):
         # Disable button during run
         self._run_btn.configure(state="disabled", text="Running...")
         self._run_thread = threading.Thread(
-            target=self._run_pipeline,
+            target=self._run_pipeline_async,
             args=(config,),
             daemon=True,
         )
@@ -1112,175 +1113,63 @@ class App(ctk.CTk):
     def _on_watcher_trigger(self, pbip_path: str):
         """Called from watchdog thread when a debounced change fires."""
         pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
-        self.log(f"change detected · {pbip_name}", "warn")
+        self.log(f"change detected - {pbip_name}", "warn")
         config = self._collect_config()
-        self._run_single(pbip_path, config)
 
-    def _run_single(self, pbip_path: str, config: dict):
-        """Run the pipeline for one .pbip file (called from watcher thread)."""
-        pbip_dir    = os.path.dirname(pbip_path)
-        pbip_name   = os.path.splitext(os.path.basename(pbip_path))[0]
-        model_dir   = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
-        include_dax = config.get("include_dax", True)
-        fmt         = config.get("output_format", "html")
-        custom_out  = config.get("output_folder", "").strip()
+        pipeline_config = PipelineConfig(
+            reports_folder=config["reports_folder"],
+            output_folder=config.get("output_folder", ""),
+            include_dax=config.get("include_dax", True),
+            output_format=config.get("output_format", "html"),
+            overwrite=config.get("overwrite_readme", False),
+            skip_unchanged=config.get("skip_unchanged", False),
+        )
 
-        if not os.path.isdir(model_dir):
-            self.log(f"{pbip_name} - no SemanticModel folder", "warn")
-            return
-        self.log(f"→ {pbip_name}", "msg")
-        try:
-            self.log("  parsing TMDL...", "msg")
-            model = parse_semantic_model(model_dir, pbip_name)
-            table_count   = len(model.tables)
-            measure_count = sum(len(t.measures) for t in model.tables)
-            self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
+        pipeline = Pipeline(
+            config=pipeline_config,
+            ws_config=self._ws_config,
+            logger=lambda msg, level: self.log(msg, level),
+        )
 
-            resolved    = resolve_sources(
-                model.source_expressions, model.m_parameters, tables=model.tables
-            )
-            report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
-            gen_config  = {
-                "report_name":      pbip_name,
-                "owner":            report_meta["owner"],
-                "team":             report_meta["team"],
-                "refresh_schedule": report_meta["refresh_schedule"],
-                "include_dax":      include_dax,
-                "show_hidden":      report_meta["show_hidden"],
-            }
-
-            content      = generate_html(model, resolved, gen_config) if fmt == "html" \
-                else generate_readme(model, resolved, gen_config)
-            out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
-            if custom_out:
-                out_path = os.path.join(custom_out, pbip_name, out_filename)
-            else:
-                out_path = os.path.join(pbip_dir, out_filename)
-
-            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-            with open(out_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            self.log(f"  {out_filename} written", "ok")
+        result = pipeline.run_single(pbip_path)
+        if result.success:
             now = datetime.now().strftime("%H:%M:%S")
             self.after(0, lambda: self._last_run_label.configure(
-                text=f"last run · {now}"
+                text=f"last run - {now}"
             ))
-        except Exception as e:
-            self.log(f"  error: {e}", "err")
 
-    def _run_pipeline(self, config: dict):
-        reports_folder = config["reports_folder"]
-        include_dax    = config.get("include_dax", True)
-        overwrite      = config.get("overwrite_readme", False)
-        fmt            = config.get("output_format", "html")
-        custom_out     = config.get("output_folder", "").strip()
-
-        self.log(f"scanning {reports_folder}", "info")
-
-        # Find all .pbip files recursively
-        pbip_files = []
-        for root, dirs, files in os.walk(reports_folder):
-            for f in files:
-                if f.endswith(".pbip"):
-                    pbip_files.append(os.path.join(root, f))
-
-        if not pbip_files:
-            self.log("no .pbip files found", "warn")
-            self._run_done()
-            return
-
-        # Detect folders with multiple .pbip files — warn and skip them
-        from collections import defaultdict
-        folder_map: dict[str, list[str]] = defaultdict(list)
-        for p in pbip_files:
-            folder_map[os.path.dirname(p)].append(p)
-
-        skipped_dirs = {d for d, files in folder_map.items() if len(files) > 1}
-        for d in sorted(skipped_dirs):
-            names = ", ".join(os.path.splitext(os.path.basename(p))[0] for p in folder_map[d])
-            self.log(f"skipped: {os.path.basename(d)} contains multiple .pbip files ({names})", "warn")
-            self.log(f"  place each report in its own folder to generate documentation", "warn")
-
-        runnable = [p for p in pbip_files if os.path.dirname(p) not in skipped_dirs]
-        self.log(f"found {len(runnable)} report(s)", "ok")
-        success = 0
-        errors  = 0
-
-        for pbip_path in runnable:
-            pbip_dir  = os.path.dirname(pbip_path)
-            pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
-            model_dir = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
-
-            if not os.path.isdir(model_dir):
-                self.log(f"{pbip_name} - no SemanticModel folder", "warn")
-                continue
-
-            out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
-            if custom_out:
-                # Each report gets its own subfolder so multiple reports never collide
-                out_path = os.path.join(custom_out, pbip_name, out_filename)
-            else:
-                out_path = os.path.join(pbip_dir, out_filename)
-
-            if os.path.exists(out_path) and not overwrite:
-                self.log(f"{pbip_name} - skipped (file exists)", "msg")
-                continue
-
-            self.log(f"→ {pbip_name}", "msg")
-
-            try:
-                self.log("  parsing TMDL...", "msg")
-                model = parse_semantic_model(model_dir, pbip_name)
-
-                table_count   = len(model.tables)
-                measure_count = sum(len(t.measures) for t in model.tables)
-                self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
-
-                resolved = resolve_sources(
-                    model.source_expressions, model.m_parameters, tables=model.tables
-                )
-                report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
-                gen_config = {
-                    "report_name":      pbip_name,
-                    "owner":            report_meta["owner"],
-                    "team":             report_meta["team"],
-                    "refresh_schedule": report_meta["refresh_schedule"],
-                    "include_dax":      include_dax,
-                    "show_hidden":      report_meta["show_hidden"],
-                }
-
-                content = generate_html(model, resolved, gen_config) if fmt == "html" \
-                    else generate_readme(model, resolved, gen_config)
-
-                os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-                with open(out_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-
-                self.log(f"  {out_filename} written", "ok")
-                success += 1
-
-            except Exception as e:
-                self.log(f"  error: {e}", "err")
-                errors += 1
-
-        self.log(
-            f"done · {success} written" + (f" · {errors} errors" if errors else ""),
-            "ok" if not errors else "warn",
+    def _run_pipeline_async(self, config: dict):
+        """Run the full pipeline in a background thread."""
+        pipeline_config = PipelineConfig(
+            reports_folder=config["reports_folder"],
+            output_folder=config.get("output_folder", ""),
+            include_dax=config.get("include_dax", True),
+            output_format=config.get("output_format", "html"),
+            overwrite=config.get("overwrite_readme", False),
+            skip_unchanged=config.get("skip_unchanged", False),
         )
-        self._run_done()
 
-    def _run_done(self):
+        pipeline = Pipeline(
+            config=pipeline_config,
+            ws_config=self._ws_config,
+            logger=lambda msg, level: self.log(msg, level),
+        )
+
+        result = pipeline.run()
+        self._on_pipeline_done(result)
+
+    def _on_pipeline_done(self, result: PipelineResult):
+        """Update UI after pipeline run completes."""
         now = datetime.now().strftime("%H:%M:%S")
         self._last_run = now
         self.after(0, lambda: self._run_btn.configure(
             state="normal", text="▶  Run Now"
         ))
         self.after(0, lambda: self._last_run_label.configure(
-            text=f"last run · {now}"
+            text=f"last run - {now}"
         ))
 
-    # ── Log ───────────────────────────────────────────────────────────────────
+    # -- Log -------------------------------------------------------------------
 
     def log(self, message: str, level: str = "msg"):
         def _append():
