@@ -73,12 +73,25 @@ Python 3.12 or later required when running from source.
 
 ---
 
+## Development
+
+```
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+`requirements-dev.txt` adds dev-only dependencies (pytest, pyinstaller) on top of the base `requirements.txt`. The test suite runs against the bundled sample report and covers the TMDL parser, source resolution, config validation, and README/HTML generation.
+
+---
+
 ## Project structure
 
 ```
 tmdl-lens/
   main.py                   entry point
   requirements.txt
+  requirements-dev.txt      dev-only dependencies (pytest, pyinstaller)
+  pytest.ini
   src/
     app.py                  CustomTkinter UI
     pipeline.py             documentation generation pipeline
@@ -88,7 +101,7 @@ tmdl-lens/
     watcher.py              file watcher (watchdog)
     config.py               app settings + documentation metadata (config.json)
   sample/                   sample .pbip project for testing
-  tests/                    unit tests
+  tests/                    pytest suite
 ```
 
 ---
