@@ -2,7 +2,7 @@
 
 Automated documentation generator for Power BI projects.
 
-Reads TMDL files from a folder of `.pbip` reports and generates structured HTML or Markdown documentation for each one — covering data sources, tables, measures, relationships, M parameters, security roles, and calculation groups.
+Reads TMDL files from a folder of `.pbip` reports and generates structured HTML or Markdown documentation for each one - covering data sources, tables, measures, relationships, M parameters, security roles, and calculation groups.
 
 Runs as a standalone Windows desktop app. Output can be HTML (opens in any browser) or Markdown (README.md for GitHub). A live file watcher regenerates documentation automatically on every save.
 
@@ -40,7 +40,7 @@ python main.py
 
 ### Option B - Standalone executable
 
-Download the latest `tmdl-lens.exe` from the [Releases](https://github.com/nox-magistralis/tmdl-lens/releases) page. No Python or pip required — just run the `.exe` directly.
+Download the latest `tmdl-lens.exe` from the [Releases](https://github.com/nox-magistralis/tmdl-lens/releases) page. No Python or pip required - just run the `.exe` directly.
 
 A `config.json` file will be created alongside the executable on first run to store your settings.
 
@@ -56,9 +56,13 @@ A `config.json` file will be created alongside the executable on first run to st
 4. Press **Run Now** to generate documentation for all reports
 5. Enable **Watch for TMDL changes** to auto-regenerate on every save
 
-If no output folder is set, each `README.md` is written next to its `.pbip` file. If a separate output folder is set, each report gets its own named subfolder inside it — for example `docs/SalesReport/README.md`, `docs/FinanceReport/README.md` — so multiple reports never collide.
+If no output folder is set, each `README.md` is written next to its `.pbip` file. If a separate output folder is set, each report gets its own named subfolder inside it - for example `docs/SalesReport/README.md`, `docs/FinanceReport/README.md` - so multiple reports never collide.
 
 Optional documentation metadata (owner, team, refresh schedule) is set in the **Configure** tab and stored in `config.json` next to the app. Values left blank are omitted from the generated output.
+
+By default the app skips reports whose TMDL files and documentation settings have not changed since the last run - each report is hashed, and only reports that actually moved are regenerated. Turn this off with **Skip reports with no TMDL changes** in **Configure**.
+
+On startup the app validates the config and logs a warning for a missing or empty reports folder, a missing output folder, a watch debounce outside 1-300, or an output format other than `html` or `md`.
 
 ---
 
@@ -108,10 +112,10 @@ tmdl-lens/
 
 ## Author
 
-**Marcin Mozol** — [github.com/nox-magistralis](https://github.com/nox-magistralis)
+**Marcin Mozol** - [github.com/nox-magistralis](https://github.com/nox-magistralis)
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT - see [LICENSE](LICENSE)
