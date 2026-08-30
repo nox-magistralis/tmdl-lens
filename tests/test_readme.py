@@ -2,7 +2,7 @@
 test_readme.py — pytest tests for the Markdown/HTML generators.
 """
 
-from src.readme_generator import generate_html, generate_readme
+from tmdl_lens.readme_generator import generate_html, generate_readme
 
 
 def test_readme_title(sample_model, sample_resolved, gen_config):

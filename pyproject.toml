@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmdl-lens"
+description = "Automated documentation generator for Power BI projects."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Marcin Mozol", email = "marcin.mozol@pm.me" }]
+keywords = ["powerbi", "pbip", "tmdl", "power-bi", "documentation", "dax"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Documentation",
+]
+dynamic = ["version"]
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["customtkinter>=5.2.0", "watchdog>=4.0.0"]
+
+[project.scripts]
+tmdl-lens = "tmdl_lens.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "tmdl_lens.version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["tmdl_lens*"]

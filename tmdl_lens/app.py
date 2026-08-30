@@ -14,14 +14,15 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
-# Ensure src/ is importable when running directly
+# Ensure tmdl_lens/ is importable when running directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config import load as load_config, save as save_config, validate_config
-from src.pipeline import Pipeline, PipelineConfig, PipelineResult
+from tmdl_lens.config import load as load_config, save as save_config, validate_config
+from tmdl_lens.pipeline import Pipeline, PipelineConfig, PipelineResult
+from tmdl_lens.version import __version__ as APP_VERSION
 
 try:
-    from src.watcher import TmdlWatcher, WATCHER_AVAILABLE
+    from tmdl_lens.watcher import TmdlWatcher, WATCHER_AVAILABLE
 except ImportError:
     WATCHER_AVAILABLE = False
     TmdlWatcher = None
@@ -30,8 +31,6 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Theme
 # ---------------------------------------------------------------------------
-
-APP_VERSION = "0.3.0"
 
 COLORS = {
     "bg":          "#1a1d26",
@@ -950,7 +949,7 @@ class App(ctk.CTk):
 
     def _auto_save_config(self):
         """Write config.json on first launch only — don't overwrite an existing file."""
-        from src.config import config_path
+        from tmdl_lens.config import config_path
         if not os.path.exists(config_path()):
             self.config_data = self._collect_config()
             save_config(self.config_data)

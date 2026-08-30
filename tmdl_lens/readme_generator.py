@@ -7,8 +7,8 @@ a structured README.md for each Power BI report.
 
 import re
 from datetime import date
-from src.tmdl_parser import SemanticModel, Table
-from src.source_resolver import ResolvedSource, get_table_source
+from tmdl_lens.tmdl_parser import SemanticModel, Table
+from tmdl_lens.source_resolver import ResolvedSource, get_table_source
 
 
 # ---------------------------------------------------------------------------

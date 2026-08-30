@@ -1,6 +1,7 @@
 # tmdl-lens user config — not committed, personal to each installation
 config.json
 src/config.json
+tmdl_lens/config.json
 
 # Local AI tooling — personal, not committed
 .clinerules

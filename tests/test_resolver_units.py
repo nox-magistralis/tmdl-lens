@@ -1,6 +1,6 @@
 """Fragment-level tests for the source resolver helpers."""
 
-from src.source_resolver import (
+from tmdl_lens.source_resolver import (
     _build_chain_label,
     _build_label,
     _copy_resolved,
@@ -11,7 +11,7 @@ from src.source_resolver import (
     get_table_source,
     list_unresolved,
 )
-from src.tmdl_parser import SourceExpression, Table
+from tmdl_lens.tmdl_parser import SourceExpression, Table
 
 
 def test_label_native_query_sql():

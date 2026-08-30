@@ -1,6 +1,6 @@
 """Fragment-level tests for the TMDL parser text-processing functions."""
 
-from src.tmdl_parser import (
+from tmdl_lens.tmdl_parser import (
     SourceExpression,
     _classify_m_content,
     _dedent,

@@ -2,7 +2,7 @@
 test_config.py — pytest tests for src.config.
 """
 
-from src.config import validate_config
+from tmdl_lens.config import validate_config
 
 
 def test_valid_config_no_warnings(tmp_path):

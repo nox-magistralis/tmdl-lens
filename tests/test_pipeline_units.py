@@ -1,6 +1,6 @@
 """Fragment-level tests for the pipeline helper functions."""
 
-from src.pipeline import (
+from tmdl_lens.pipeline import (
     PipelineConfig,
     _build_gen_config,
     _content_hash,

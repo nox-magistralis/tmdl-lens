@@ -17,7 +17,7 @@ used by the README generator.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
-from src.tmdl_parser import SourceExpression, MParameter
+from tmdl_lens.tmdl_parser import SourceExpression, MParameter
 
 
 # ---------------------------------------------------------------------------
