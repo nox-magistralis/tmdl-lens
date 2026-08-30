@@ -8,7 +8,6 @@ applied for anything missing.
 
 import json
 import os
-import re
 import sys
 
 
@@ -23,11 +22,11 @@ DEFAULTS = {
     "include_dax":      True,
     "output_format":    "html",
     "skip_unchanged":   True,
-    "watch_enabled":    True,
     "watch_debounce":   10,
-    "schedule_enabled": False,
-    "schedule_day":     "Mon",
-    "schedule_time":    "08:00",
+    "owner":            "",
+    "team":             "",
+    "refresh_schedule": "",
+    "file_hashes":      {},
     "features": {
         "watcher": True,
     },
@@ -107,26 +106,44 @@ def reset() -> bool:
         return False
 
 
-def validate(config: dict) -> list[str]:
-    errors = []
-    if config.get("output_format") not in ("html", "md"):
-        errors.append("output_format must be 'html' or 'md'")
-    wd = config.get("watch_debounce")
-    if not isinstance(wd, int) or wd < 1:
-        errors.append("watch_debounce must be an integer >= 1")
-    st = config.get("schedule_time")
-    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(st)):
-        errors.append("schedule_time must match HH:MM format (24h)")
-    sd = config.get("schedule_day")
-    if sd not in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
-        errors.append("schedule_day must be one of: Mon, Tue, Wed, Thu, Fri, Sat, Sun")
-    rf = config.get("reports_folder")
-    if rf and not isinstance(rf, str):
-        errors.append("reports_folder must be a string")
-    of = config.get("output_folder")
-    if of and not isinstance(of, str):
-        errors.append("output_folder must be a string")
-    return errors
+def validate_config(config: dict) -> list:
+    """
+    Validate a loaded config dict and return a list of warning strings.
+
+    Returns an empty list when the config looks fine. Callers (e.g. the
+    GUI) can surface each warning in the log.
+    """
+    warnings = []
+
+    reports_folder = str(config.get("reports_folder", "")).strip()
+    if not reports_folder:
+        warnings.append("reports_folder is not set - choose a reports folder to run")
+    elif not os.path.isdir(reports_folder):
+        warnings.append(f"reports_folder does not exist: {reports_folder}")
+
+    output_folder = str(config.get("output_folder", "")).strip()
+    if output_folder and not os.path.isdir(output_folder):
+        warnings.append(f"output_folder does not exist: {output_folder}")
+
+    watch_debounce = config.get("watch_debounce")
+    if watch_debounce is not None:
+        try:
+            if not 1 <= int(watch_debounce) <= 300:
+                warnings.append(
+                    f"watch_debounce must be between 1 and 300 (got {watch_debounce})"
+                )
+        except (TypeError, ValueError):
+            warnings.append(
+                f"watch_debounce must be an integer (got {watch_debounce!r})"
+            )
+
+    output_format = str(config.get("output_format", "")).strip()
+    if output_format and output_format not in ("html", "md"):
+        warnings.append(
+            f"output_format must be 'html' or 'md' (got {output_format!r})"
+        )
+
+    return warnings
 
 
 def config_path() -> str:

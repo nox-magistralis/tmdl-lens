@@ -1,0 +1,295 @@
+"""
+pipeline.py - Documentation generation pipeline for tmdl-lens.
+
+Pure Python, no GUI dependencies. Takes a PipelineConfig and runs the
+full documentation generation flow for one or many reports.
+
+Usable from:
+  - app.py (CustomTkinter UI)   - passes a logger callback
+  - cli.py (future headless mode)
+  - CI/CD runners
+  - AI agents / MCP servers
+"""
+
+import hashlib
+import json
+import os
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+from src.tmdl_parser import parse_semantic_model
+from src.source_resolver import resolve_sources
+from src.readme_generator import generate_readme, generate_html
+
+
+# ---------------------------------------------------------------------------
+# Config & result dataclasses
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PipelineConfig:
+    """Pure data structure - no GUI, no tkinter."""
+
+    reports_folder: str
+    output_folder: str = ""
+    include_dax: bool = True
+    output_format: str = "html"  # "html" | "md"
+    overwrite: bool = False
+    skip_unchanged: bool = False
+    owner: str = ""
+    team: str = ""
+    refresh_schedule: str = ""
+
+
+@dataclass
+class SingleResult:
+    """Result of processing one .pbip report."""
+
+    report_name: str
+    success: bool = False
+    error: str = ""
+    skipped: bool = False
+    skip_reason: str = ""
+    output_path: str = ""
+    table_count: int = 0
+    measure_count: int = 0
+    content_hash: str = ""
+
+
+@dataclass
+class PipelineResult:
+    """Result of a full pipeline run."""
+
+    success_count: int = 0
+    error_count: int = 0
+    skipped_count: int = 0
+    total_count: int = 0
+    results: list = field(default_factory=list)
+    hashes: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+def _find_pbip_files(reports_folder: str) -> list[str]:
+    """Recursively find all .pbip files in a folder."""
+    pbip_files = []
+    for root, dirs, files in os.walk(reports_folder):
+        for f in files:
+            if f.endswith(".pbip"):
+                pbip_files.append(os.path.join(root, f))
+    return pbip_files
+
+
+def _detect_multi_pbip_folders(pbip_files: list[str]) -> tuple[set, list[str]]:
+    """
+    Folders containing more than one .pbip file are ambiguous - the
+    pipeline cannot know which .SemanticModel folder belongs to which
+    report. Returns (set_of_skipped_dirs, list_of_runnable_files).
+    """
+    folder_map: dict[str, list[str]] = defaultdict(list)
+    for p in pbip_files:
+        folder_map[os.path.dirname(p)].append(p)
+
+    skipped_dirs = {d for d, files in folder_map.items() if len(files) > 1}
+    runnable = [p for p in pbip_files if os.path.dirname(p) not in skipped_dirs]
+    return skipped_dirs, runnable
+
+
+def _get_output_path(
+    pbip_dir: str,
+    pbip_name: str,
+    output_format: str,
+    custom_out: str,
+) -> str:
+    """Resolve the output file path for one report."""
+    out_filename = f"{pbip_name}.html" if output_format == "html" else "README.md"
+    if custom_out:
+        # Each report gets its own subfolder so multiple reports never collide
+        return os.path.join(custom_out, pbip_name, out_filename)
+    return os.path.join(pbip_dir, out_filename)
+
+
+def _build_gen_config(report_name: str, config: PipelineConfig) -> dict:
+    """Build the generator config dict for one report."""
+    return {
+        "report_name":      report_name,
+        "owner":            config.owner,
+        "team":             config.team,
+        "refresh_schedule": config.refresh_schedule,
+        "include_dax":      config.include_dax,
+    }
+
+
+def _content_hash(model_dir: str, config: PipelineConfig) -> str:
+    """SHA256 of the report's TMDL content plus generator-relevant config."""
+    h = hashlib.sha256()
+    tmdl_files = []
+    for root, _, files in os.walk(model_dir):
+        for f in files:
+            if f.endswith(".tmdl"):
+                tmdl_files.append(os.path.join(root, f))
+    tmdl_files.sort()
+    for path in tmdl_files:
+        rel = os.path.relpath(path, model_dir)
+        h.update(rel.encode("utf-8"))
+        h.update(b"\x00")
+        with open(path, "rb") as fh:
+            h.update(fh.read())
+        h.update(b"\x00")
+    config_blob = json.dumps(
+        {
+            "include_dax":      config.include_dax,
+            "output_format":    config.output_format,
+            "owner":            config.owner,
+            "team":             config.team,
+            "refresh_schedule": config.refresh_schedule,
+        },
+        sort_keys=True,
+    )
+    h.update(config_blob.encode("utf-8"))
+    return h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
+
+class Pipeline:
+    """
+    Pure-Python documentation generation pipeline.
+
+    No GUI, no tkinter, no threads. Call run() or run_single() and get
+    back structured results. All logging goes through the injected
+    logger callback (message: str, level: str) -> None.
+    """
+
+    def __init__(
+        self,
+        config: PipelineConfig,
+        saved_hashes: Optional[dict] = None,
+        logger: Callable[[str, str], None] = None,
+    ):
+        self.config = config
+        self.saved_hashes = saved_hashes or {}
+        self.logger = logger or (lambda msg, level: None)
+
+    # -- Public API -----------------------------------------------------------
+
+    def run(self) -> PipelineResult:
+        """Process all reports in the configured folder. Returns a PipelineResult."""
+        reports_folder = self.config.reports_folder
+        self.logger(f"scanning {reports_folder}", "info")
+
+        pbip_files = _find_pbip_files(reports_folder)
+        if not pbip_files:
+            self.logger("no .pbip files found", "warn")
+            return PipelineResult()
+
+        skipped_dirs, runnable = _detect_multi_pbip_folders(pbip_files)
+        for d in sorted(skipped_dirs):
+            names = ", ".join(
+                os.path.splitext(os.path.basename(p))[0]
+                for p in pbip_files
+                if os.path.dirname(p) == d
+            )
+            self.logger(
+                f"skipped: {os.path.basename(d)} contains multiple .pbip files ({names})",
+                "warn",
+            )
+            self.logger(
+                "  place each report in its own folder to generate documentation",
+                "warn",
+            )
+
+        self.logger(f"found {len(runnable)} report(s)", "ok")
+
+        result = PipelineResult(total_count=len(runnable))
+        for pbip_path in runnable:
+            single = self.run_single(pbip_path)
+            result.results.append(single)
+            if single.content_hash:
+                result.hashes[single.report_name] = single.content_hash
+            if single.success:
+                result.success_count += 1
+            elif single.skipped:
+                result.skipped_count += 1
+            else:
+                result.error_count += 1
+
+        self.logger(
+            f"done - {result.success_count} written" + (
+                f" - {result.error_count} errors" if result.error_count else ""
+            ),
+            "ok" if not result.error_count else "warn",
+        )
+        return result
+
+    def run_single(self, pbip_path: str) -> SingleResult:
+        """Process one .pbip file. Returns a SingleResult."""
+        pbip_dir    = os.path.dirname(pbip_path)
+        pbip_name   = os.path.splitext(os.path.basename(pbip_path))[0]
+        model_dir   = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
+
+        if not os.path.isdir(model_dir):
+            self.logger(f"{pbip_name} - no SemanticModel folder", "warn")
+            return SingleResult(report_name=pbip_name, skipped=True,
+                                skip_reason="no SemanticModel folder")
+
+        out_path = _get_output_path(
+            pbip_dir, pbip_name, self.config.output_format, self.config.output_folder
+        )
+
+        current_hash = ""
+        if self.config.skip_unchanged:
+            current_hash = _content_hash(model_dir, self.config)
+            if self.saved_hashes.get(pbip_name) == current_hash and os.path.exists(out_path):
+                self.logger(f"{pbip_name} - skipped (unchanged)", "msg")
+                return SingleResult(report_name=pbip_name, skipped=True,
+                                    skip_reason="unchanged")
+
+        if os.path.exists(out_path) and not self.config.overwrite:
+            self.logger(f"{pbip_name} - skipped (file exists)", "msg")
+            return SingleResult(report_name=pbip_name, skipped=True,
+                                skip_reason="file exists")
+
+        self.logger(f"-> {pbip_name}", "msg")
+        try:
+            self.logger("  parsing TMDL...", "msg")
+            model = parse_semantic_model(model_dir, pbip_name)
+
+            table_count   = len(model.tables)
+            measure_count = sum(len(t.measures) for t in model.tables)
+            self.logger(
+                f"  tables: {table_count} - measures: {measure_count}", "msg"
+            )
+
+            resolved = resolve_sources(
+                model.source_expressions, model.m_parameters, tables=model.tables
+            )
+            gen_config = _build_gen_config(pbip_name, self.config)
+
+            content = generate_html(model, resolved, gen_config) \
+                if self.config.output_format == "html" \
+                else generate_readme(model, resolved, gen_config)
+
+            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            out_filename = os.path.basename(out_path)
+            self.logger(f"  {out_filename} written", "ok")
+            return SingleResult(
+                report_name=pbip_name,
+                success=True,
+                output_path=out_path,
+                table_count=table_count,
+                measure_count=measure_count,
+                content_hash=current_hash,
+            )
+
+        except Exception as e:
+            self.logger(f"  error: {e}", "err")
+            return SingleResult(report_name=pbip_name, error=str(e))

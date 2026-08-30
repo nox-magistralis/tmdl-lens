@@ -17,11 +17,8 @@ import customtkinter as ctk
 # Ensure src/ is importable when running directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config import load as load_config, save as save_config
-import src.workspace_config as ws_cfg
-from src.tmdl_parser import parse_semantic_model
-from src.source_resolver import resolve_sources
-from src.readme_generator import generate_readme, generate_html
+from src.config import load as load_config, save as save_config, validate_config
+from src.pipeline import Pipeline, PipelineConfig, PipelineResult
 
 try:
     from src.watcher import TmdlWatcher, WATCHER_AVAILABLE
@@ -33,6 +30,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Theme
 # ---------------------------------------------------------------------------
+
+APP_VERSION = "0.3.0"
 
 COLORS = {
     "bg":          "#1a1d26",
@@ -71,7 +70,6 @@ class App(ctk.CTk):
         super().__init__()
 
         self.config_data = load_config()
-        self._ws_config: dict = dict(ws_cfg.DEFAULTS)
         self._last_run: str = "never"
         self._run_thread: threading.Thread | None = None
         self._watcher: TmdlWatcher | None = None
@@ -88,10 +86,8 @@ class App(ctk.CTk):
         self._loading = False
         self._auto_save_config()
 
-        # Load workspace config on startup — watcher is never auto-started
         saved_folder = self.config_data.get("reports_folder", "").strip()
         if saved_folder and os.path.isdir(saved_folder):
-            self._load_workspace_config(saved_folder)
             self._scan_reports(saved_folder)
         self.after(0, self._set_watcher_idle)
 
@@ -180,105 +176,23 @@ class App(ctk.CTk):
     def _build_main(self):
         main = ctk.CTkFrame(self, corner_radius=0, fg_color=COLORS["bg"])
         main.grid(row=0, column=1, sticky="nsew")
-        main.grid_rowconfigure(0, weight=0)  # tab bar
-        main.grid_rowconfigure(1, weight=1)  # content
-        main.grid_rowconfigure(2, weight=0)  # action bar
+        main.grid_rowconfigure(0, weight=1)  # content
+        main.grid_rowconfigure(1, weight=0)  # action bar
         main.grid_columnconfigure(0, weight=1)
 
-        self._build_tabbar(main)
         self._build_content(main)
         self._build_actionbar(main)
-
-    # ── Tab bar ───────────────────────────────────────────────────────────────
-
-    def _build_tabbar(self, parent):
-        tabbar = ctk.CTkFrame(
-            parent, height=36, corner_radius=0,
-            fg_color=COLORS["bg"],
-            border_width=0,
-        )
-        tabbar.grid(row=0, column=0, sticky="ew")
-        tabbar.grid_columnconfigure(10, weight=1)
-
-        # Separator line under tab bar
-        sep = ctk.CTkFrame(
-            parent, height=1, corner_radius=0,
-            fg_color=COLORS["border"],
-        )
-        sep.grid(row=0, column=0, sticky="ews")
-
-        self._tab_btns = {}
-        tabs = ["configure", "metadata"]
-        for i, tab in enumerate(tabs):
-            btn = ctk.CTkButton(
-                tabbar, text=tab,
-                width=110, height=30,
-                corner_radius=5,
-                font=ctk.CTkFont(size=14),
-                fg_color=COLORS["surface"] if i == 0 else "transparent",
-                text_color=COLORS["text_1"] if i == 0 else COLORS["text_2"],
-                border_width=1 if i == 0 else 0,
-                border_color=COLORS["border"],
-                hover_color=COLORS["border"],
-                command=lambda t=tab: self._tab_click(t),
-            )
-            btn.grid(row=0, column=i, padx=(8 if i == 0 else 2, 0), pady=4)
-            self._tab_btns[tab] = btn
-
-        self._active_tab = "configure"
-
-    def _tab_click(self, tab: str):
-        self._active_tab = tab
-        for t, btn in self._tab_btns.items():
-            if t == tab:
-                btn.configure(
-                    fg_color=COLORS["surface"],
-                    text_color=COLORS["text_1"],
-                    border_width=1,
-                    border_color=COLORS["border"],
-                )
-            else:
-                btn.configure(
-                    fg_color="transparent",
-                    text_color=COLORS["text_2"],
-                    border_width=0,
-                )
-        # Show/hide tab frames
-        for t, frame in self._tab_frames.items():
-            if t == tab:
-                frame.grid()
-            else:
-                frame.grid_remove()
 
     # ── Content ───────────────────────────────────────────────────────────────
 
     def _build_content(self, parent):
         content = ctk.CTkFrame(parent, corner_radius=0, fg_color=COLORS["bg"])
-        content.grid(row=1, column=0, sticky="nsew")
+        content.grid(row=0, column=0, sticky="nsew")
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=1)
         content.grid_columnconfigure(1, weight=0)  # log panel
 
-        # Tab frames container (left side)
-        tab_container = ctk.CTkFrame(content, corner_radius=0, fg_color=COLORS["bg"])
-        tab_container.grid(row=0, column=0, sticky="nsew")
-
-        self._tab_frames = {}
-        self._build_tab_configure(tab_container)
-        self._build_tab_metadata(tab_container)
-        self._build_tab_schedule(tab_container)
-
-        # Show configure, hide others
-        self._tab_frames["configure"].grid(row=0, column=0, sticky="nsew")
-        self._tab_frames["metadata"].grid(row=0, column=0, sticky="nsew")
-        self._tab_frames["schedule"].grid(row=0, column=0, sticky="nsew")
-        self._tab_frames["metadata"].grid_remove()
-        self._tab_frames["schedule"].grid_remove()
-
-        tab_container.grid_rowconfigure(0, weight=1)
-        tab_container.grid_columnconfigure(0, weight=1)
-
-        # Log panel (right side)
+        self._build_tab_configure(content)
         self._build_log_panel(content)
 
     # ── Configure tab ─────────────────────────────────────────────────────────
@@ -290,7 +204,7 @@ class App(ctk.CTk):
             scrollbar_button_color=COLORS["border_hi"],
             scrollbar_button_hover_color=COLORS["border_hi"],
         )
-        self._tab_frames["configure"] = frame
+        frame.grid(row=0, column=0, sticky="nsew")
 
         pad = {"padx": 22, "pady": (0, 0)}
 
@@ -372,9 +286,8 @@ class App(ctk.CTk):
         self._toggle_row(
             frame,
             "Skip reports with no TMDL changes",
-            "Compare file hash - skip if unchanged since last run  (coming soon)",
+            "Compare file hash - skip if unchanged since last run",
             self._skip_var,
-            disabled=True,
         )
 
         self._divider(frame)
@@ -427,28 +340,17 @@ class App(ctk.CTk):
         )
         self._watch_count_label.pack(side="right", padx=12, pady=8)
 
-        ctk.CTkFrame(frame, height=20, fg_color="transparent").pack(fill="x")
+        self._divider(frame)
 
-    # ── Metadata tab ──────────────────────────────────────────────────────────
+        self._section_header(frame, "Documentation metadata (optional)")
 
-    def _build_tab_metadata(self, parent):
-        frame = ctk.CTkScrollableFrame(
-            parent, corner_radius=0,
-            fg_color=COLORS["bg"],
-            scrollbar_button_color=COLORS["border_hi"],
-            scrollbar_button_hover_color=COLORS["border_hi"],
-        )
-        self._tab_frames["metadata"] = frame
-
-        self._section_header(frame, "Report Metadata")
-
-        self._field_label(frame, "Owner name")
+        self._field_label(frame, "Owner")
         self._owner_var = tk.StringVar()
         self._text_entry_row(frame, self._owner_var, "e.g. John Smith")
 
         ctk.CTkFrame(frame, height=8, fg_color="transparent").pack(fill="x")
 
-        self._field_label(frame, "Team name")
+        self._field_label(frame, "Team")
         self._team_var = tk.StringVar()
         self._text_entry_row(frame, self._team_var, "e.g. BI Team")
 
@@ -458,116 +360,15 @@ class App(ctk.CTk):
         self._refresh_var = tk.StringVar()
         self._text_entry_row(frame, self._refresh_var, "e.g. Daily at 06:00 UTC")
 
-        self._divider(frame)
-
-        # Save button — writes to tmdl-lens.json, not config.json
-        ctk.CTkButton(
-            frame, text="Save metadata",
-            width=140, height=34,
-            corner_radius=6,
-            fg_color=COLORS["surface"],
-            hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_1"],
-            border_width=1, border_color=COLORS["border"],
-            font=ctk.CTkFont(size=13),
-            command=self._on_save_metadata,
-        ).pack(anchor="w", padx=22, pady=(16, 8))
-
-        # Shows which tmdl-lens.json is currently active
-        self._ws_path_label = ctk.CTkLabel(
-            frame, text="no workspace loaded",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_2"],
-            justify="left",
-            wraplength=480,
-        )
-        self._ws_path_label.pack(anchor="w", padx=22, pady=(0, 4))
-
         ctk.CTkLabel(
             frame,
-            text="These values apply to all reports in the workspace as defaults.\nPer-report overrides can be added directly in tmdl-lens.json.",
+            text="Optional - leave blank to omit from the generated documentation.",
             font=ctk.CTkFont(size=12),
             text_color=COLORS["text_2"],
             justify="left",
         ).pack(anchor="w", padx=22, pady=(4, 20))
 
-    # ── Schedule tab ──────────────────────────────────────────────────────────
-
-    def _build_tab_schedule(self, parent):
-        frame = ctk.CTkScrollableFrame(
-            parent, corner_radius=0,
-            fg_color=COLORS["bg"],
-            scrollbar_button_color=COLORS["border_hi"],
-            scrollbar_button_hover_color=COLORS["border_hi"],
-        )
-        self._tab_frames["schedule"] = frame
-
-        self._section_header(frame, "Task Scheduler")
-
-        self._schedule_var = tk.BooleanVar(value=False)
-        self._toggle_row(
-            frame,
-            "Register with Windows Task Scheduler",
-            "Run automatically at the specified time",
-            self._schedule_var,
-        )
-
-        ctk.CTkFrame(frame, height=8, fg_color="transparent").pack(fill="x")
-
-        # Day + time row
-        sched_row = ctk.CTkFrame(
-            frame,
-            fg_color=COLORS["surface"],
-            border_width=1, border_color=COLORS["border"],
-            corner_radius=6,
-        )
-        sched_row.pack(fill="x", padx=22, pady=(0, 0))
-
-        ctk.CTkLabel(
-            sched_row, text="day",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_1"],
-        ).pack(side="left", padx=(12, 8), pady=10)
-
-        self._sched_day_var = tk.StringVar(value="Mon")
-        ctk.CTkOptionMenu(
-            sched_row,
-            values=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Daily"],
-            variable=self._sched_day_var,
-            width=80, height=26,
-            fg_color=COLORS["bg"],
-            button_color=COLORS["border"],
-            button_hover_color=COLORS["border_hi"],
-            text_color=COLORS["text_1"],
-            font=ctk.CTkFont(size=13),
-        ).pack(side="left", pady=10)
-
-        ctk.CTkLabel(
-            sched_row, text="time",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_1"],
-        ).pack(side="left", padx=(16, 8), pady=10)
-
-        self._sched_time_var = tk.StringVar(value="08:00")
-        ctk.CTkEntry(
-            sched_row,
-            textvariable=self._sched_time_var,
-            width=70, height=26,
-            fg_color=COLORS["bg"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_1"],
-            font=ctk.CTkFont(size=13),
-        ).pack(side="left", pady=10)
-
-        self._divider(frame)
-
-        ctk.CTkLabel(
-            frame,
-            text="Task Scheduler registration requires administrator privileges.\nThe task will run tmdl-lens silently on login and at the scheduled time.",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_2"],
-            justify="left",
-        ).pack(anchor="w", padx=22, pady=(0, 20))
+        ctk.CTkFrame(frame, height=20, fg_color="transparent").pack(fill="x")
 
     # ── Log panel ─────────────────────────────────────────────────────────────
 
@@ -642,6 +443,8 @@ class App(ctk.CTk):
             self.log('install with: pip install watchdog', "warn")
         elif not self.config_data.get("features", {}).get("watcher", True):
             self.log('file watcher disabled in config.json (features.watcher)', "warn")
+        for warning in validate_config(self.config_data):
+            self.log(warning, "warn")
 
     # ── Action bar ────────────────────────────────────────────────────────────
 
@@ -651,7 +454,7 @@ class App(ctk.CTk):
             fg_color=COLORS["bg"],
             border_width=1, border_color=COLORS["border"],
         )
-        bar.grid(row=2, column=0, sticky="ew")
+        bar.grid(row=1, column=0, sticky="ew")
         bar.grid_columnconfigure(10, weight=1)
 
         # Run Now
@@ -725,20 +528,6 @@ class App(ctk.CTk):
         )
         self._watcher_label.grid(row=0, column=1, padx=(0, 12), pady=0)
 
-        # Schedule status
-        ctk.CTkLabel(
-            bar, text="●",
-            font=ctk.CTkFont(size=9),
-            text_color=COLORS["amber"],
-        ).grid(row=0, column=2, padx=(0, 2), pady=0)
-
-        self._schedule_label = ctk.CTkLabel(
-            bar, text="schedule · not configured",
-            font=ctk.CTkFont(family="Courier New", size=11),
-            text_color=COLORS["text_2"],
-        )
-        self._schedule_label.grid(row=0, column=3, padx=(0, 12), pady=0)
-
         # Report count
         self._report_count_label = ctk.CTkLabel(
             bar, text="0 reports",
@@ -753,6 +542,12 @@ class App(ctk.CTk):
             font=ctk.CTkFont(family="Courier New", size=11),
             text_color=COLORS["text_3"],
         ).grid(row=0, column=12, padx=(0, 14), pady=0, sticky="e")
+
+        ctk.CTkLabel(
+            bar, text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family="Courier New", size=11),
+            text_color=COLORS["text_3"],
+        ).grid(row=0, column=13, padx=(0, 14), pady=0, sticky="e")
 
     # ── UI component helpers ──────────────────────────────────────────────────
 
@@ -913,12 +708,12 @@ class App(ctk.CTk):
         self._overwrite_var.set(c.get("overwrite_readme", False))
         self._format_var.set("MD" if c.get("output_format", "html") == "md" else "HTML")
         self._dax_var.set(c.get("include_dax", True))
-        self._skip_var.set(False)  # disabled toggle, value not loaded from config
+        self._skip_var.set(c.get("skip_unchanged", True))
         self._watch_var.set(False)  # always off on startup — user enables manually
         self._debounce_var.set(f"{c.get('watch_debounce', 10)} sec")
-        self._schedule_var.set(c.get("schedule_enabled", False))
-        self._sched_day_var.set(c.get("schedule_day", "Mon"))
-        self._sched_time_var.set(c.get("schedule_time", "08:00"))
+        self._owner_var.set(c.get("owner", ""))
+        self._team_var.set(c.get("team", ""))
+        self._refresh_var.set(c.get("refresh_schedule", ""))
 
     def _collect_config(self) -> dict:
         debounce_raw = self._debounce_var.get().replace(" sec", "")
@@ -934,11 +729,11 @@ class App(ctk.CTk):
             "output_format":    self._format_var.get().lower(),
             "include_dax":      self._dax_var.get(),
             "skip_unchanged":   self._skip_var.get(),
-            "watch_enabled":    self._watch_var.get(),
             "watch_debounce":   debounce,
-            "schedule_enabled": self._schedule_var.get(),
-            "schedule_day":     self._sched_day_var.get(),
-            "schedule_time":    self._sched_time_var.get().strip(),
+            "owner":            self._owner_var.get().strip(),
+            "team":             self._team_var.get().strip(),
+            "refresh_schedule": self._refresh_var.get().strip(),
+            "file_hashes":      self.config_data.get("file_hashes", {}),
         }
 
     # ── Browse handlers ───────────────────────────────────────────────────────
@@ -948,7 +743,6 @@ class App(ctk.CTk):
         if folder:
             self._reports_var.set(folder)
             self._scan_reports(folder)
-            self._load_workspace_config(folder)  # may write tmdl-lens.json
             if self._watch_var.get():
                 self.after(200, lambda: self._start_watcher(folder))
 
@@ -970,49 +764,6 @@ class App(ctk.CTk):
         )
 
     # ── Action handlers ───────────────────────────────────────────────────────
-
-    def _load_workspace_config(self, folder: str):
-        """Load tmdl-lens.json from folder, populate Metadata tab, log the result."""
-        config, error = ws_cfg.load(folder)
-        self._ws_config = config
-
-        if error:
-            self.log(f"tmdl-lens.json: {error}", "warn")
-            self.log("metadata fields cleared — fix the file and re-select the folder", "warn")
-            self._owner_var.set("")
-            self._team_var.set("")
-            self._refresh_var.set("")
-            self._ws_path_label.configure(
-                text=f"⚠ {ws_cfg.path(folder)}  (load error)",
-                text_color=COLORS["amber"],
-            )
-            return
-
-        self._owner_var.set(config.get("owner", ""))
-        self._team_var.set(config.get("team", ""))
-        self._refresh_var.set(config.get("refresh_schedule", ""))
-        self._ws_path_label.configure(
-            text=ws_cfg.path(folder),
-            text_color=COLORS["text_3"],
-        )
-        self.log(f"workspace config loaded: {ws_cfg.path(folder)}", "ok")
-
-    def _on_save_metadata(self):
-        """Write Metadata tab fields back to tmdl-lens.json."""
-        folder = self._reports_var.get().strip()
-        if not folder:
-            self.log("no reports folder set — cannot save metadata", "err")
-            return
-
-        self._ws_config["owner"]            = self._owner_var.get().strip()
-        self._ws_config["team"]             = self._team_var.get().strip()
-        self._ws_config["refresh_schedule"] = self._refresh_var.get().strip()
-
-        ok, error = ws_cfg.save(folder, self._ws_config)
-        if ok:
-            self.log("metadata saved to tmdl-lens.json", "ok")
-        else:
-            self.log(f"failed to save metadata: {error}", "err")
 
     def _on_save_config(self):
         self.config_data = self._collect_config()
@@ -1041,7 +792,7 @@ class App(ctk.CTk):
         # Disable button during run
         self._run_btn.configure(state="disabled", text="Running...")
         self._run_thread = threading.Thread(
-            target=self._run_pipeline,
+            target=self._run_pipeline_async,
             args=(config,),
             daemon=True,
         )
@@ -1110,175 +861,79 @@ class App(ctk.CTk):
     def _on_watcher_trigger(self, pbip_path: str):
         """Called from watchdog thread when a debounced change fires."""
         pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
-        self.log(f"change detected · {pbip_name}", "warn")
+        self.log(f"change detected - {pbip_name}", "warn")
         config = self._collect_config()
-        self._run_single(pbip_path, config)
 
-    def _run_single(self, pbip_path: str, config: dict):
-        """Run the pipeline for one .pbip file (called from watcher thread)."""
-        pbip_dir    = os.path.dirname(pbip_path)
-        pbip_name   = os.path.splitext(os.path.basename(pbip_path))[0]
-        model_dir   = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
-        include_dax = config.get("include_dax", True)
-        fmt         = config.get("output_format", "html")
-        custom_out  = config.get("output_folder", "").strip()
+        pipeline_config = PipelineConfig(
+            reports_folder=config["reports_folder"],
+            output_folder=config.get("output_folder", ""),
+            include_dax=config.get("include_dax", True),
+            output_format=config.get("output_format", "html"),
+            overwrite=True,
+            skip_unchanged=config.get("skip_unchanged", False),
+            owner=config.get("owner", ""),
+            team=config.get("team", ""),
+            refresh_schedule=config.get("refresh_schedule", ""),
+        )
 
-        if not os.path.isdir(model_dir):
-            self.log(f"{pbip_name} - no SemanticModel folder", "warn")
-            return
-        self.log(f"→ {pbip_name}", "msg")
-        try:
-            self.log("  parsing TMDL...", "msg")
-            model = parse_semantic_model(model_dir, pbip_name)
-            table_count   = len(model.tables)
-            measure_count = sum(len(t.measures) for t in model.tables)
-            self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
+        pipeline = Pipeline(
+            config=pipeline_config,
+            saved_hashes=config.get("file_hashes", {}),
+            logger=lambda msg, level: self.log(msg, level),
+        )
 
-            resolved    = resolve_sources(
-                model.source_expressions, model.m_parameters, tables=model.tables
-            )
-            report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
-            gen_config  = {
-                "report_name":      pbip_name,
-                "owner":            report_meta["owner"],
-                "team":             report_meta["team"],
-                "refresh_schedule": report_meta["refresh_schedule"],
-                "include_dax":      include_dax,
-                "show_hidden":      report_meta["show_hidden"],
-            }
-
-            content      = generate_html(model, resolved, gen_config) if fmt == "html" \
-                else generate_readme(model, resolved, gen_config)
-            out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
-            if custom_out:
-                out_path = os.path.join(custom_out, pbip_name, out_filename)
-            else:
-                out_path = os.path.join(pbip_dir, out_filename)
-
-            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-            with open(out_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            self.log(f"  {out_filename} written", "ok")
+        result = pipeline.run_single(pbip_path)
+        if result.content_hash:
+            self.after(0, lambda h=result.content_hash, n=pbip_name: self._persist_hashes({n: h}))
+        if result.success:
             now = datetime.now().strftime("%H:%M:%S")
             self.after(0, lambda: self._last_run_label.configure(
-                text=f"last run · {now}"
+                text=f"last run - {now}"
             ))
-        except Exception as e:
-            self.log(f"  error: {e}", "err")
 
-    def _run_pipeline(self, config: dict):
-        reports_folder = config["reports_folder"]
-        include_dax    = config.get("include_dax", True)
-        overwrite      = config.get("overwrite_readme", False)
-        fmt            = config.get("output_format", "html")
-        custom_out     = config.get("output_folder", "").strip()
-
-        self.log(f"scanning {reports_folder}", "info")
-
-        # Find all .pbip files recursively
-        pbip_files = []
-        for root, dirs, files in os.walk(reports_folder):
-            for f in files:
-                if f.endswith(".pbip"):
-                    pbip_files.append(os.path.join(root, f))
-
-        if not pbip_files:
-            self.log("no .pbip files found", "warn")
-            self._run_done()
-            return
-
-        # Detect folders with multiple .pbip files — warn and skip them
-        from collections import defaultdict
-        folder_map: dict[str, list[str]] = defaultdict(list)
-        for p in pbip_files:
-            folder_map[os.path.dirname(p)].append(p)
-
-        skipped_dirs = {d for d, files in folder_map.items() if len(files) > 1}
-        for d in sorted(skipped_dirs):
-            names = ", ".join(os.path.splitext(os.path.basename(p))[0] for p in folder_map[d])
-            self.log(f"skipped: {os.path.basename(d)} contains multiple .pbip files ({names})", "warn")
-            self.log(f"  place each report in its own folder to generate documentation", "warn")
-
-        runnable = [p for p in pbip_files if os.path.dirname(p) not in skipped_dirs]
-        self.log(f"found {len(runnable)} report(s)", "ok")
-        success = 0
-        errors  = 0
-
-        for pbip_path in runnable:
-            pbip_dir  = os.path.dirname(pbip_path)
-            pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
-            model_dir = os.path.join(pbip_dir, f"{pbip_name}.SemanticModel")
-
-            if not os.path.isdir(model_dir):
-                self.log(f"{pbip_name} - no SemanticModel folder", "warn")
-                continue
-
-            out_filename = f"{pbip_name}.html" if fmt == "html" else "README.md"
-            if custom_out:
-                # Each report gets its own subfolder so multiple reports never collide
-                out_path = os.path.join(custom_out, pbip_name, out_filename)
-            else:
-                out_path = os.path.join(pbip_dir, out_filename)
-
-            if os.path.exists(out_path) and not overwrite:
-                self.log(f"{pbip_name} - skipped (file exists)", "msg")
-                continue
-
-            self.log(f"→ {pbip_name}", "msg")
-
-            try:
-                self.log("  parsing TMDL...", "msg")
-                model = parse_semantic_model(model_dir, pbip_name)
-
-                table_count   = len(model.tables)
-                measure_count = sum(len(t.measures) for t in model.tables)
-                self.log(f"  tables: {table_count} · measures: {measure_count}", "msg")
-
-                resolved = resolve_sources(
-                    model.source_expressions, model.m_parameters, tables=model.tables
-                )
-                report_meta = ws_cfg.merge_report(self._ws_config, pbip_name)
-                gen_config = {
-                    "report_name":      pbip_name,
-                    "owner":            report_meta["owner"],
-                    "team":             report_meta["team"],
-                    "refresh_schedule": report_meta["refresh_schedule"],
-                    "include_dax":      include_dax,
-                    "show_hidden":      report_meta["show_hidden"],
-                }
-
-                content = generate_html(model, resolved, gen_config) if fmt == "html" \
-                    else generate_readme(model, resolved, gen_config)
-
-                os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-                with open(out_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-
-                self.log(f"  {out_filename} written", "ok")
-                success += 1
-
-            except Exception as e:
-                self.log(f"  error: {e}", "err")
-                errors += 1
-
-        self.log(
-            f"done · {success} written" + (f" · {errors} errors" if errors else ""),
-            "ok" if not errors else "warn",
+    def _run_pipeline_async(self, config: dict):
+        """Run the full pipeline in a background thread."""
+        pipeline_config = PipelineConfig(
+            reports_folder=config["reports_folder"],
+            output_folder=config.get("output_folder", ""),
+            include_dax=config.get("include_dax", True),
+            output_format=config.get("output_format", "html"),
+            overwrite=config.get("overwrite_readme", False),
+            skip_unchanged=config.get("skip_unchanged", False),
+            owner=config.get("owner", ""),
+            team=config.get("team", ""),
+            refresh_schedule=config.get("refresh_schedule", ""),
         )
-        self._run_done()
 
-    def _run_done(self):
+        pipeline = Pipeline(
+            config=pipeline_config,
+            saved_hashes=config.get("file_hashes", {}),
+            logger=lambda msg, level: self.log(msg, level),
+        )
+
+        result = pipeline.run()
+        self._on_pipeline_done(result)
+
+    def _on_pipeline_done(self, result: PipelineResult):
+        """Update UI after pipeline run completes."""
         now = datetime.now().strftime("%H:%M:%S")
         self._last_run = now
         self.after(0, lambda: self._run_btn.configure(
             state="normal", text="▶  Run Now"
         ))
         self.after(0, lambda: self._last_run_label.configure(
-            text=f"last run · {now}"
+            text=f"last run - {now}"
         ))
+        self.after(0, lambda: self._persist_hashes(result.hashes))
 
-    # ── Log ───────────────────────────────────────────────────────────────────
+    def _persist_hashes(self, new_hashes: dict):
+        """Merge freshly computed hashes into config.json (main thread only)."""
+        if not new_hashes:
+            return
+        self.config_data.setdefault("file_hashes", {}).update(new_hashes)
+        save_config(self._collect_config())
+
+    # -- Log -------------------------------------------------------------------
 
     def log(self, message: str, level: str = "msg"):
         def _append():

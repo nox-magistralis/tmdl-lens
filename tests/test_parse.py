@@ -1,146 +1,155 @@
 """
-test_parse.py — Validates tmdl_parser + source_resolver against the sample report.
-Run from the repo root:  python tests/test_parse.py
+test_parse.py — pytest tests for tmdl_parser and source_resolver.
+
+Run from the repo root:  python -m pytest
 """
 
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.tmdl_parser import parse_semantic_model
-from src.source_resolver import resolve_sources, list_unresolved, get_table_source
-
-SAMPLE_MODEL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "sample",
-    "tmdl-lens-test-report.SemanticModel",
-)
+def test_report_name(sample_model):
+    assert sample_model.report_name == "tmdl-lens Test Report"
 
 
-def separator(title: str):
-    print(f"\n{'─' * 60}")
-    print(f"  {title}")
-    print(f"{'─' * 60}")
+def test_tables_count(sample_model):
+    assert len(sample_model.tables) == 8
 
 
-def run():
-    # ── 1. Parse ─────────────────────────────────────────────────────────────
-    separator("1. Parsing semantic model")
-    model = parse_semantic_model(SAMPLE_MODEL, "tmdl-lens Test Report")
-    print(f"  Report         : {model.report_name}")
-    print(f"  Tables         : {len(model.tables)}")
-    print(f"  Relationships  : {len(model.relationships)}")
-    print(f"  Expressions    : {len(model.source_expressions)}")
-    print(f"  M Parameters   : {len(model.m_parameters)}")
-
-    # ── 2. Tables ─────────────────────────────────────────────────────────────
-    separator("2. Tables")
-    for t in model.tables:
-        loaded_flag = "" if t.is_loaded else " [NOT LOADED]"
-        hidden_flag = " [HIDDEN]" if t.is_hidden else ""
-        print(f"  {t.name:<35} type={t.table_type:<16} partition={t.partition_type or '—':<12} ref='{t.source_ref}'{loaded_flag}{hidden_flag}")
-
-    # ── 3. M Parameters ───────────────────────────────────────────────────────
-    separator("3. M Parameters")
-    for p in model.m_parameters:
-        print(f"  {p.name:<20} type={p.param_type:<10} value={p.value}")
-
-    # ── 4. Raw expressions (before resolution) ────────────────────────────────
-    separator("4. Source expressions (raw)")
-    for e in model.source_expressions:
-        print(f"  {e.name:<40} source_type={e.source_type}")
-
-    # ── 5. Resolve ────────────────────────────────────────────────────────────
-    separator("5. Resolving sources")
-    resolved = resolve_sources(model.source_expressions, model.m_parameters)
-    for name, rs in resolved.items():
-        tier   = f"T{rs.resolution_tier}"
-        unresx = " ⚠ UNRESOLVED" if rs.unresolved else ""
-        print(f"  [{tier}] {name:<40} → {rs.label}{unresx}")
-
-    # ── 6. Unresolved list ────────────────────────────────────────────────────
-    unresolved = list_unresolved(resolved)
-    separator(f"6. Unresolved sources ({len(unresolved)})")
-    if unresolved:
-        for rs in unresolved:
-            print(f"  ⚠  {rs.expression_name}")
-            print(f"     Reason: {rs.unresolved_reason}")
-    else:
-        print("  All sources resolved.")
-
-    # ── 7. Table → source mapping ─────────────────────────────────────────────
-    separator("7. Table → resolved source")
-    for t in model.tables:
-        rs = get_table_source(t, resolved)
-        if rs:
-            tier = f"T{rs.resolution_tier}"
-            flag = " ⚠" if rs.unresolved else ""
-            print(f"  {t.name:<35} [{tier}] {rs.label}{flag}")
-        else:
-            print(f"  {t.name:<35} — (no M source: {t.table_type})")
-
-    # ── 8. Relationships ──────────────────────────────────────────────────────
-    separator("8. Relationships")
-    if model.relationships:
-        for r in model.relationships:
-            active = "" if r.is_active else " [inactive]"
-            print(f"  {r.from_table}.{r.from_column}  →  {r.to_table}.{r.to_column}{active}")
-    else:
-        print("  (none found — relationships.tmdl may be empty or absent)")
-
-    # ── 9. Measures ───────────────────────────────────────────────────────────
-    separator("9. Measures")
-    for t in model.tables:
-        for m in t.measures:
-            print(f"  [{t.name}]  {m.name:<30}  fmt={m.format_string or '—'}")
-
-    # ── 10. Summary ───────────────────────────────────────────────────────────
-    separator("10. Summary")
-    tier_counts = {1: 0, 2: 0, 3: 0}
-    for rs in resolved.values():
-        tier_counts[rs.resolution_tier] = tier_counts.get(rs.resolution_tier, 0) + 1
-
-    print(f"  Tier 1 (direct)   : {tier_counts[1]}")
-    print(f"  Tier 2 (derived)  : {tier_counts[2]}")
-    print(f"  Tier 3 (unresolved): {tier_counts[3]}")
-    print(f"  Total expressions : {len(resolved)}")
-
-    if unresolved:
-        print(f"\n  ⚠  {len(unresolved)} source(s) need manual labelling.")
-    else:
-        print("\n  ✓  Parser + resolver working correctly.")
-
-    # ── 11. Security Roles ────────────────────────────────────────────────────
-    separator(f"11. Security Roles ({len(model.security_roles)})")
-    if model.security_roles:
-        for role in model.security_roles:
-            dynamic_flag = f" [dynamic: {role.dynamic_function}]" if role.is_dynamic else ""
-            print(f"  {role.name}{dynamic_flag}")
-            if role.table_filters:
-                for tf in role.table_filters:
-                    print(f"    table='{tf.table}'  filter={tf.dax_filter}")
-            else:
-                print("    (no table filters — full access)")
-    else:
-        print("  No security roles found.")
-
-    # ── 12. Calculation Groups ────────────────────────────────────────────────
-    calc_groups = [t for t in model.tables if t.table_type == "calc_group"]
-    separator(f"12. Calculation Groups ({len(calc_groups)})")
-    if calc_groups:
-        for cg in calc_groups:
-            print(f"  {cg.name}  ({len(cg.calculation_items)} items)")
-            for item in cg.calculation_items:
-                fmt_flag = f"  fmt='{item.format_string_expression}'" if item.format_string_expression else ""
-                print(f"    [{item.ordinal}] {item.name}{fmt_flag}")
-                if item.dax_expression:
-                    preview = item.dax_expression[:80].replace("\n", " ")
-                    suffix = "..." if len(item.dax_expression) > 80 else ""
-                    print(f"        DAX: {preview}{suffix}")
-    else:
-        print("  No calculation groups found.")
+def test_table_names(sample_model):
+    names = sorted(t.name for t in sample_model.tables)
+    assert names == [
+        "_measures",
+        "cg-time-intelligence",
+        "dim-date",
+        "dim-product",
+        "fact-sales",
+        "helper-order-lookup",
+        "param-metric-selector",
+        "source-sql-staging",
+    ]
 
 
-if __name__ == "__main__":
-    run()
+def test_table_classification(sample_model):
+    types = {t.name: t.table_type for t in sample_model.tables}
+    assert types == {
+        "_measures":             "measures_only",
+        "cg-time-intelligence":  "calc_group",
+        "dim-date":              "calculated",
+        "dim-product":           "dim",
+        "fact-sales":            "fact",
+        "helper-order-lookup":   "helper",
+        "param-metric-selector": "field_parameter",
+        "source-sql-staging":    "staging",
+    }
+
+
+def test_hidden_and_not_loaded_tables(sample_model):
+    helper = next(t for t in sample_model.tables if t.name == "helper-order-lookup")
+    assert helper.is_hidden is True
+    staging = next(t for t in sample_model.tables if t.name == "source-sql-staging")
+    assert staging.is_loaded is False
+
+
+def test_m_parameters(sample_model):
+    assert len(sample_model.m_parameters) == 2
+    by_name = {p.name: p for p in sample_model.m_parameters}
+    assert by_name["ServerName"].value == "fake-server.database.windows.net"
+    assert by_name["DatabaseName"].value == "SalesDB"
+
+
+def test_source_expressions(sample_model):
+    assert len(sample_model.source_expressions) == 21
+
+
+def test_relationships(sample_model):
+    assert len(sample_model.relationships) == 3
+    pairs = {
+        (r.from_table, r.from_column, r.to_table, r.to_column)
+        for r in sample_model.relationships
+    }
+    assert ("fact-sales", "order_date", "dim-date", "Date") in pairs
+    assert ("fact-sales", "customer_id", "dim-product", "product_id") in pairs
+    assert ("fact-sales", "ship_date", "dim-date", "Date") in pairs
+    assert sum(1 for r in sample_model.relationships if not r.is_active) == 1
+
+
+def test_measures(sample_model):
+    by_table = {t.name: t.measures for t in sample_model.tables}
+    assert len(by_table["_measures"]) == 4
+    assert len(by_table["fact-sales"]) == 2
+    assert len(by_table["helper-order-lookup"]) == 1
+    names = {m.name for m in by_table["_measures"]}
+    assert names == {
+        "Total Sales Amount",
+        "Order Count",
+        "Avg Order Value",
+        "Sales YTD",
+    }
+
+
+def test_resolved_sources_tiers(sample_resolved):
+    assert len(sample_resolved) == 21
+    tier1 = sum(1 for rs in sample_resolved.values() if rs.resolution_tier == 1)
+    tier2 = sum(1 for rs in sample_resolved.values() if rs.resolution_tier == 2)
+    tier3 = sum(1 for rs in sample_resolved.values() if rs.resolution_tier == 3)
+    assert tier1 == 18
+    assert tier2 == 1
+    assert tier3 == 2
+
+
+def test_resolved_sql_source(sample_resolved):
+    rs = sample_resolved["source-sql-direct"]
+    assert rs.source_type == "connector"
+    assert rs.resolution_tier == 1
+    assert "SalesDB" in rs.label
+    assert "dbo.orders" in rs.label
+
+
+def test_resolved_derived_chain(sample_resolved):
+    rs = sample_resolved["source-derived"]
+    assert rs.resolution_tier == 2
+    assert rs.derived_from == "source-sql-direct"
+    assert rs.chain[0] == "source-sql-direct"
+
+
+def test_tier3_are_unresolved(sample_resolved):
+    tier3 = [rs for rs in sample_resolved.values() if rs.resolution_tier == 3]
+    assert len(tier3) == 2
+    assert all(rs.unresolved for rs in tier3)
+    names = sorted(rs.expression_name for rs in tier3)
+    assert names == ["source-dynamic", "source-via-custom-function"]
+
+
+def test_security_roles(sample_model):
+    assert len(sample_model.security_roles) == 5
+    names = {r.name for r in sample_model.security_roles}
+    assert names == {
+        "Regional Managers",
+        "Employees",
+        "Legacy Users",
+        "Area Supervisors",
+        "Administrators",
+    }
+    dynamic = {
+        r.name: r.dynamic_function
+        for r in sample_model.security_roles
+        if r.is_dynamic
+    }
+    assert dynamic == {
+        "Employees":   "USERPRINCIPALNAME",
+        "Legacy Users": "USERNAME",
+    }
+    admins = next(r for r in sample_model.security_roles if r.name == "Administrators")
+    assert admins.table_filters == []
+
+
+def test_calculation_groups(sample_model):
+    cgs = [t for t in sample_model.tables if t.table_type == "calc_group"]
+    assert len(cgs) == 1
+    cg = cgs[0]
+    assert cg.name == "cg-time-intelligence"
+    assert len(cg.calculation_items) == 5
+    assert [i.name for i in cg.calculation_items] == [
+        "YTD", "MTD", "Rolling 12M", "Prior Year", "YoY %",
+    ]
+    ytd = cg.calculation_items[0]
+    assert "TOTALYTD" in ytd.dax_expression
+    assert ytd.format_string_expression == "SELECTEDMEASUREFORMATSTRING()"

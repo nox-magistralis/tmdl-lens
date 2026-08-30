@@ -58,7 +58,7 @@ A `config.json` file will be created alongside the executable on first run to st
 
 If no output folder is set, each `README.md` is written next to its `.pbip` file. If a separate output folder is set, each report gets its own named subfolder inside it — for example `docs/SalesReport/README.md`, `docs/FinanceReport/README.md` — so multiple reports never collide.
 
-Workspace metadata (owner, team, refresh schedule) is set under the **Metadata** tab and written to a `tmdl-lens.json` file inside the reports folder. Per-report overrides can be added directly in that file.
+Optional documentation metadata (owner, team, refresh schedule) is set in the **Configure** tab and stored in `config.json` next to the app. Values left blank are omitted from the generated output.
 
 ---
 
@@ -73,22 +73,35 @@ Python 3.12 or later required when running from source.
 
 ---
 
+## Development
+
+```
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+`requirements-dev.txt` adds dev-only dependencies (pytest, pyinstaller) on top of the base `requirements.txt`. The test suite runs against the bundled sample report and covers the TMDL parser, source resolution, config validation, and README/HTML generation.
+
+---
+
 ## Project structure
 
 ```
 tmdl-lens/
   main.py                   entry point
   requirements.txt
+  requirements-dev.txt      dev-only dependencies (pytest, pyinstaller)
+  pytest.ini
   src/
     app.py                  CustomTkinter UI
+    pipeline.py             documentation generation pipeline
     tmdl_parser.py          TMDL file parser
     source_resolver.py      M expression source resolver
     readme_generator.py     README markdown generator
     watcher.py              file watcher (watchdog)
-    config.py               UI config read/write (config.json)
-    workspace_config.py     workspace metadata read/write (tmdl-lens.json)
+    config.py               app settings + documentation metadata (config.json)
   sample/                   sample .pbip project for testing
-  tests/                    unit tests
+  tests/                    pytest suite
 ```
 
 ---
