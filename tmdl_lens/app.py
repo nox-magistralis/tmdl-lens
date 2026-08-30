@@ -1,5 +1,5 @@
 """
-app.py — Main UI for tmdl-lens.
+app.py - Main UI for tmdl-lens.
 
 CustomTkinter dark-theme desktop application.
 Native Windows titlebar with "tmdl-lens" as the window title.
@@ -126,7 +126,7 @@ class App(ctk.CTk):
         sidebar.grid_propagate(False)
         sidebar.grid_rowconfigure(10, weight=1)
 
-        # Nav buttons — top
+        # Nav buttons - top
         self._nav_btns = {}
         nav_items = [
             ("generator", "⊞", "Generator"),
@@ -145,7 +145,7 @@ class App(ctk.CTk):
             btn.grid(row=i, column=0, padx=8, pady=(8 if i == 0 else 3, 3))
             self._nav_btns[key] = btn
 
-        # Settings — bottom
+        # Settings - bottom
         settings_btn = ctk.CTkButton(
             sidebar, text="⚙", width=32, height=32,
             corner_radius=7, font=ctk.CTkFont(size=14),
@@ -405,7 +405,7 @@ class App(ctk.CTk):
         sep = ctk.CTkFrame(panel, height=1, corner_radius=0, fg_color=COLORS["border"])
         sep.grid(row=0, column=0, sticky="ews")
 
-        # Log body — native tk.Text for colour tags
+        # Log body - native tk.Text for colour tags
         log_body_frame = ctk.CTkFrame(panel, corner_radius=0, fg_color=COLORS["surface"])
         log_body_frame.grid(row=1, column=0, sticky="nsew")
         log_body_frame.grid_rowconfigure(0, weight=1)
@@ -708,7 +708,7 @@ class App(ctk.CTk):
         self._format_var.set("MD" if c.get("output_format", "html") == "md" else "HTML")
         self._dax_var.set(c.get("include_dax", True))
         self._skip_var.set(c.get("skip_unchanged", True))
-        self._watch_var.set(False)  # always off on startup — user enables manually
+        self._watch_var.set(False)  # always off on startup - user enables manually
         self._debounce_var.set(f"{c.get('watch_debounce', 10)} sec")
         self._owner_var.set(c.get("owner", ""))
         self._team_var.set(c.get("team", ""))
@@ -948,7 +948,7 @@ class App(ctk.CTk):
     # ── Close ─────────────────────────────────────────────────────────────────
 
     def _auto_save_config(self):
-        """Write config.json on first launch only — don't overwrite an existing file."""
+        """Write config.json on first launch only - don't overwrite an existing file."""
         from tmdl_lens.config import config_path
         if not os.path.exists(config_path()):
             self.config_data = self._collect_config()

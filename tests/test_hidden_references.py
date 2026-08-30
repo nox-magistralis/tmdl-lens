@@ -1,5 +1,5 @@
 """
-test_hidden_references.py — pytest tests for hidden-object reference
+test_hidden_references.py - pytest tests for hidden-object reference
 detection used by the README/HTML generators.
 """
 

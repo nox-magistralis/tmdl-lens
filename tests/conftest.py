@@ -1,5 +1,5 @@
 """
-conftest.py — shared pytest fixtures for tmdl-lens tests.
+conftest.py - shared pytest fixtures for tmdl-lens tests.
 
 All tests run against the bundled sample report in sample/.
 """

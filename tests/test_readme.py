@@ -1,5 +1,5 @@
 """
-test_readme.py — pytest tests for the Markdown/HTML generators.
+test_readme.py - pytest tests for the Markdown/HTML generators.
 """
 
 from tmdl_lens.readme_generator import generate_html, generate_readme

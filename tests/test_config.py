@@ -1,5 +1,5 @@
 """
-test_config.py — pytest tests for src.config.
+test_config.py - pytest tests for src.config.
 """
 
 from tmdl_lens.config import validate_config

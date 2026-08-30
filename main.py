@@ -1,5 +1,5 @@
 """
-main.py — Entry point for tmdl-lens.
+main.py - Entry point for tmdl-lens.
 Run: python main.py
 """
 
