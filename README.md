@@ -27,26 +27,7 @@ Each generated README includes:
 
 ## Installation
 
-### Option A - Run from source
-
-Requires Python 3.12+.
-
-```
-git clone https://github.com/nox-magistralis/tmdl-lens.git
-cd tmdl-lens
-pip install -r requirements.txt
-python main.py
-```
-
-### Option B - Standalone executable
-
-Download the latest `tmdl-lens.exe` from the [Releases](https://github.com/nox-magistralis/tmdl-lens/releases) page. No Python or pip required - just run the `.exe` directly.
-
-A `config.json` file will be created alongside the executable on first run to store your settings.
-
-> **Note:** Windows may show a SmartScreen warning on first run. Click **More info** then **Run anyway**. This is expected for unsigned applications.
-
-### Option C - Command line (PyPI)
+### Option A - Command line (PyPI)
 
 Requires Python 3.12+.
 
@@ -60,6 +41,25 @@ The base package installs the dependency-free `tmdl-lens` command and nothing el
 ```
 pip install "tmdl-lens[gui]"
 python -m tmdl_lens.app
+```
+
+### Option B - Standalone executable
+
+Download the latest `tmdl-lens.exe` from the [Releases](https://github.com/nox-magistralis/tmdl-lens/releases) page. No Python or pip required - just run the `.exe` directly.
+
+A `config.json` file will be created alongside the executable on first run to store your settings.
+
+> **Note:** Windows may show a SmartScreen warning on first run. Click **More info** then **Run anyway**. This is expected for unsigned applications.
+
+### Option C - Run from source
+
+Requires Python 3.12+.
+
+```
+git clone https://github.com/nox-magistralis/tmdl-lens.git
+cd tmdl-lens
+pip install -r requirements.txt
+python main.py
 ```
 
 ---
