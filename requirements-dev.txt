@@ -1,0 +1,9 @@
+# Dev-only dependencies for tmdl-lens (Python 3.12+).
+# Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+
+# Testing
+pytest>=8.0.0
+
+# Packaging the standalone .exe
+pyinstaller>=6.0.0
