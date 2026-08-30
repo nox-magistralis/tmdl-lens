@@ -1,4 +1,4 @@
-// Dimension table — references SharePoint list expression
+// Dimension table - references SharePoint list expression
 table dim-product
 	lineageTag: 00000002-0000-0000-0000-000000000003
 

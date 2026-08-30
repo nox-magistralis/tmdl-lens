@@ -1,4 +1,4 @@
-// Parameter table — field parameter (calculated partition with NAMEOF)
+// Parameter table - field parameter (calculated partition with NAMEOF)
 // Parser must detect this as a parameter table, not a data source
 table param-metric-selector
 	lineageTag: 00000002-0000-0000-0000-000000000005

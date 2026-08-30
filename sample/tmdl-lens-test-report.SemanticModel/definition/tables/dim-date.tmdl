@@ -1,4 +1,4 @@
-// Calculated table — DAX partition, no M source
+// Calculated table - DAX partition, no M source
 // Parser must detect this as DAX/calculated, not a data source
 table dim-date
 	lineageTag: 00000002-0000-0000-0000-000000000004

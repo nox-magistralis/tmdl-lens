@@ -1,4 +1,4 @@
-// Calculation group table — unit of measure selector
+// Calculation group table - unit of measure selector
 // Structure taken from a real report, all domain-specific content replaced
 table cg-time-intelligence
 	lineageTag: 00000002-0000-0000-0000-000000000010

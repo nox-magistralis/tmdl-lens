@@ -1,4 +1,4 @@
-// Not-loaded table — enableLoad: false
+// Not-loaded table - enableLoad: false
 // Parser must detect this and flag it separately
 table source-sql-staging
 	lineageTag: 00000002-0000-0000-0000-000000000002
