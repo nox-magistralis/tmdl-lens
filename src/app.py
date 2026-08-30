@@ -17,7 +17,7 @@ import customtkinter as ctk
 # Ensure src/ is importable when running directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config import load as load_config, save as save_config
+from src.config import load as load_config, save as save_config, validate_config
 from src.pipeline import Pipeline, PipelineConfig, PipelineResult
 
 try:
@@ -443,6 +443,8 @@ class App(ctk.CTk):
             self.log('install with: pip install watchdog', "warn")
         elif not self.config_data.get("features", {}).get("watcher", True):
             self.log('file watcher disabled in config.json (features.watcher)', "warn")
+        for warning in validate_config(self.config_data):
+            self.log(warning, "warn")
 
     # ── Action bar ────────────────────────────────────────────────────────────
 

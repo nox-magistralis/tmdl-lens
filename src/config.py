@@ -106,6 +106,46 @@ def reset() -> bool:
         return False
 
 
+def validate_config(config: dict) -> list:
+    """
+    Validate a loaded config dict and return a list of warning strings.
+
+    Returns an empty list when the config looks fine. Callers (e.g. the
+    GUI) can surface each warning in the log.
+    """
+    warnings = []
+
+    reports_folder = str(config.get("reports_folder", "")).strip()
+    if not reports_folder:
+        warnings.append("reports_folder is not set - choose a reports folder to run")
+    elif not os.path.isdir(reports_folder):
+        warnings.append(f"reports_folder does not exist: {reports_folder}")
+
+    output_folder = str(config.get("output_folder", "")).strip()
+    if output_folder and not os.path.isdir(output_folder):
+        warnings.append(f"output_folder does not exist: {output_folder}")
+
+    watch_debounce = config.get("watch_debounce")
+    if watch_debounce is not None:
+        try:
+            if not 1 <= int(watch_debounce) <= 300:
+                warnings.append(
+                    f"watch_debounce must be between 1 and 300 (got {watch_debounce})"
+                )
+        except (TypeError, ValueError):
+            warnings.append(
+                f"watch_debounce must be an integer (got {watch_debounce!r})"
+            )
+
+    output_format = str(config.get("output_format", "")).strip()
+    if output_format and output_format not in ("html", "md"):
+        warnings.append(
+            f"output_format must be 'html' or 'md' (got {output_format!r})"
+        )
+
+    return warnings
+
+
 def config_path() -> str:
     """Returns the resolved config.json path (for display in UI)."""
     return _config_path()
