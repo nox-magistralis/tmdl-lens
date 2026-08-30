@@ -1,5 +1,5 @@
 """
-readme_generator.py — Markdown README generator for tmdl-lens.
+readme_generator.py - Markdown README generator for tmdl-lens.
 
 Takes a parsed SemanticModel and resolved sources dict and produces
 a structured README.md for each Power BI report.
@@ -7,8 +7,8 @@ a structured README.md for each Power BI report.
 
 import re
 from datetime import date
-from src.tmdl_parser import SemanticModel, Table
-from src.source_resolver import ResolvedSource, get_table_source
+from tmdl_lens.tmdl_parser import SemanticModel, Table
+from tmdl_lens.source_resolver import ResolvedSource, get_table_source
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ _DTYPE = {
     "dateTime":   "Date/Time",
     "boolean":    "True/False",
     "calculated": "Calculated",
-    "unknown":    "—",
+    "unknown":    "-",
 }
 
 def _dtype(raw: str) -> str:
@@ -200,9 +200,9 @@ def _overview_section(config: dict, model: SemanticModel) -> str:
     if config.get("refresh_schedule"):
         rows.append(f"| **Refresh Schedule** | {config['refresh_schedule']} |")
     rows.extend([
-        f"| **Culture** | {model.model_culture or '—'} |",
-        f"| **Compatibility Level** | {model.database_compatibility_level or '—'} |",
-        f"| **Data Source Version** | {model.model_data_source_version or '—'} |",
+        f"| **Culture** | {model.model_culture or '-'} |",
+        f"| **Compatibility Level** | {model.database_compatibility_level or '-'} |",
+        f"| **Data Source Version** | {model.model_data_source_version or '-'} |",
         f"| **Last Generated** | {today} |",
     ])
 
@@ -240,8 +240,8 @@ def _data_sources_section(
                 src_type = _connector_type_label(rs)
                 label    = _source_label(rs)
             else:
-                src_type = "—"
-                label    = "—"
+                src_type = "-"
+                label    = "-"
             lines.append(f"| `{t.name}` | {src_type} | {label} |")
         lines.append("")
     else:
@@ -274,8 +274,8 @@ def _data_sources_section(
                 src_type = _connector_type_label(rs)
                 label    = _source_label(rs)
             else:
-                src_type = "—"
-                label    = "—"
+                src_type = "-"
+                label    = "-"
             lines.append(f"| `{t.name}` | {src_type} | {label} |")
         lines.append("")
         staging_fmt = _column_format_string_inventory(staging_tables, heading="Not Loaded Table Format Strings Used")
@@ -361,13 +361,13 @@ def _table_detail_block(
         # SharePoint .Files / .Tables
         if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
             lines.append(f"**SharePoint URL:** `{rs.sharepoint_url}`  ")
-        # File — Excel.Workbook or Csv.Document
+        # File - Excel.Workbook or Csv.Document
         if rs.source_type == "connector" and (
             (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
             or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
         ) and rs.file_name:
             lines.append(f"**File:** `{rs.file_name}`  ")
-        # Sheet — Excel.Workbook
+        # Sheet - Excel.Workbook
         if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
             lines.append(f"**Sheet:** `{rs.sheet_name}`  ")
         # Web API / OData
@@ -380,7 +380,7 @@ def _table_detail_block(
             lines.append(f"**Chain:** `{rs.label}`  ")
         if rs.unresolved:
             lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
-        # Fallback physical-table display — for connectors other than SQL Database
+        # Fallback physical-table display - for connectors other than SQL Database
         if rs.physical_tables and not (
             rs.source_type == "connector"
             and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
@@ -432,7 +432,7 @@ def _table_detail_block(
             summ    = col.summarize_by or "-"
             src_col = f"`{col.source_column}`" if col.source_column else "-"
             sort_by = f"`{col.sort_by_column}`" if col.sort_by_column else "-"
-            desc    = col.description or "—"
+            desc    = col.description or "-"
             hidden  = "Hidden" if col.is_hidden else ""
             lines.append(
                 f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} | {hidden} |"
@@ -470,7 +470,7 @@ def _table_detail_block(
     if table.calculation_items:
         lines += ["**Calculation Items**", "", "| Item | Ordinal | Format String |", "|---|---|---|"]
         for item in table.calculation_items:
-            fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "—"
+            fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "-"
             lines.append(f"| `{item.name}` | {item.ordinal} | {fmt} |")
         lines.append("")
         lines += [
@@ -492,8 +492,8 @@ def _table_detail_block(
     if display_measures:
         lines += ["**Measures**", "", "| Measure | Format | Description | Hidden |", "|---|---|---|---|"]
         for m in display_measures:
-            fmt    = f"`{m.format_string}`" if m.format_string else "—"
-            desc   = m.description or "—"
+            fmt    = f"`{m.format_string}`" if m.format_string else "-"
+            desc   = m.description or "-"
             hidden = "Hidden" if m.is_hidden else ""
             lines.append(f"| `{m.name}` | {fmt} | {desc} | {hidden} |")
         if include_dax:
@@ -618,8 +618,8 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
     for folder in sorted(folders.keys()):
         lines += [f"### {folder}", "", "| Measure | Table | Format | Description |", "|---|---|---|---|"]
         for table_name, m in folders[folder]:
-            fmt  = f"`{m.format_string}`" if m.format_string else "—"
-            desc = m.description or "—"
+            fmt  = f"`{m.format_string}`" if m.format_string else "-"
+            desc = m.description or "-"
             lines.append(f"| `{m.name}` | `{table_name}` | {fmt} | {desc} |")
         lines.append("")
         if include_dax:
@@ -655,7 +655,7 @@ def _relationships_section(model: SemanticModel) -> str:
         ]
         for r in active:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '—'} | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
+                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '-'} | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
             )
         lines.append("")
 
@@ -690,20 +690,20 @@ def _build_param_usage_map(model: SemanticModel) -> dict[str, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Stage 4b — hidden cross-reference detection
+# Stage 4b - hidden cross-reference detection
 # ---------------------------------------------------------------------------
 
 def _build_hidden_reference_map(model: SemanticModel) -> tuple[dict, dict, dict]:
     """Build lookup dicts for hidden-object detection from DAX expressions.
 
     Returns (tables_by_name, hidden_measures, hidden_columns):
-      tables_by_name  — {table_name: Table} for every table in the model.
-      hidden_measures — {measure_name: table_name_or_list} — for each measure
+      tables_by_name  - {table_name: Table} for every table in the model.
+      hidden_measures - {measure_name: table_name_or_list} - for each measure
                         whose own is_hidden is True or whose owning table is
                         hidden.  If the same measure name appears on multiple
                         tables the value is a list of all owning tables (the
                         ambiguity case).
-      hidden_columns  — {(table_name, column_name): True} — for each column
+      hidden_columns  - {(table_name, column_name): True} - for each column
                         whose own is_hidden is True or whose owning table is
                         hidden.
     """
@@ -775,7 +775,7 @@ def _find_hidden_references(
     results: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
-    # Pattern 1: Column references — 'TableName'[ColumnName] or TableName[ColumnName]
+    # Pattern 1: Column references - 'TableName'[ColumnName] or TableName[ColumnName]
     # Matches optional single-quoted or bare table name, then [ColumnName]
     col_pattern = re.compile(
         r"(?:'([^']+)'|([A-Za-z_]\w*)) \[ ([A-Za-z_][A-Za-z0-9_. ]*) \]",
@@ -800,19 +800,19 @@ def _find_hidden_references(
                 seen.add(key)
                 results.append(key)
 
-    # Pattern 2: Bare measure references — [MeasureName]
+    # Pattern 2: Bare measure references - [MeasureName]
     # Must NOT be preceded by a table name (closing quote, letter, or ])
     # Find all [MeasureName] tokens via regex
     meas_pattern = re.compile(r"\[ ([A-Za-z_][A-Za-z0-9_. ()+-]*) \]", re.VERBOSE)
     for m in meas_pattern.finditer(stripped):
         start = m.start()
-        # Check that this is a bare reference — not preceded by a closing
+        # Check that this is a bare reference - not preceded by a closing
         # single-quote, closing double-quote, or alphanumeric character
         # (which would indicate a table-qualified column reference).
         if start > 0:
             prev_char = stripped[start - 1]
             if prev_char not in (" ", "\t", "\n", "\r", "(", ",", "=", "+", "-", "*", "/", ">", "<", "!", "&", "|", "~", "^", "%"):
-                # This bracket is attached to something — could be table[col]
+                # This bracket is attached to something - could be table[col]
                 # already caught by Pattern 1, or part of another syntax.
                 # Skip it.
                 continue
@@ -821,7 +821,7 @@ def _find_hidden_references(
             continue
         entry = hidden_measures[meas_name]
         if isinstance(entry, list):
-            # Ambiguous — multiple tables have a hidden measure with this name.
+            # Ambiguous - multiple tables have a hidden measure with this name.
             # Skip rather than guessing.
             continue
         table_name = entry
@@ -858,7 +858,7 @@ def _security_roles_section(model: SemanticModel) -> str:
     for role in model.security_roles:
         if not role.table_filters:
             dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
-            lines.append(f"| `{role.name}` | — | — | {dynamic_label} |")
+            lines.append(f"| `{role.name}` | - | - | {dynamic_label} |")
         else:
             for i, tf in enumerate(role.table_filters):
                 role_cell     = f"`{role.name}`" if i == 0 else ""
@@ -880,8 +880,8 @@ def _m_parameters_section(model: SemanticModel) -> str:
     lines += ["| Parameter | Type | Value | Used By |", "|---|---|---|---|"]
     for p in model.m_parameters:
         used_by   = usage_map.get(p.name, [])
-        used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "—"
-        val_cell  = f"`{p.value}`" if p.value.strip() else "—"
+        used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "-"
+        val_cell  = f"`{p.value}`" if p.value.strip() else "-"
         lines.append(f"| `{p.name}` | {p.param_type} | {val_cell} | {used_cell} |")
 
     lines += [
@@ -932,7 +932,7 @@ def _statistics_section(
     ]
 
     def names(lst):
-        return ", ".join(f"`{t.name}`" for t in lst) if lst else "—"
+        return ", ".join(f"`{t.name}`" for t in lst) if lst else "-"
 
     hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
 
@@ -948,9 +948,9 @@ def _statistics_section(
         f"| Measures-Only Tables | {len(mo)} | {names(mo)} |",
         f"| Calculation Groups | {len(cg)} | {names(cg)} |",
         f"| Not Loaded | {len(staging_tables)} | {names(staging_tables)} |",
-        f"| Relationships | {len(visible_rels)} | — |",
-        f"| Measures | {len(all_meas)} | — |",
-        f"| Calculated Columns | {len(calc_cols)} | — |",
+        f"| Relationships | {len(visible_rels)} | - |",
+        f"| Measures | {len(all_meas)} | - |",
+        f"| Calculated Columns | {len(calc_cols)} | - |",
         "",
         "---",
         "",
@@ -1408,7 +1408,7 @@ def generate_readme(
     support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
     staging  = [t for t in model.tables if not t.is_loaded]
     loaded_visible = [t for t in loaded if not t.is_hidden]
-    # loaded_hidden is no longer used — hidden tables render inline in Table Details.
+    # loaded_hidden is no longer used - hidden tables render inline in Table Details.
     # loaded_visible is still used for Data Sources and Statistics (visible-only).
 
     ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)

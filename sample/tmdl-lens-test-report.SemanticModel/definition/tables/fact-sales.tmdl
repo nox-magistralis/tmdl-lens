@@ -1,4 +1,4 @@
-// Loaded fact table — references a shared expression
+// Loaded fact table - references a shared expression
 table fact-sales
 	lineageTag: 00000002-0000-0000-0000-000000000001
 

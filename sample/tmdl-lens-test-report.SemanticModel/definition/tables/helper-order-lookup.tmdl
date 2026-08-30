@@ -1,4 +1,4 @@
-// Hidden loaded helper table — isHidden set directly on the table header
+// Hidden loaded helper table - isHidden set directly on the table header
 // Parser must detect this via the isHidden tree-parse (not changedProperty),
 // exclude it from ## 2. Table Details, and render it under ## 2b. Hidden Tables
 /// Internal lookup table joining order status codes to staging data. Not exposed to report consumers.

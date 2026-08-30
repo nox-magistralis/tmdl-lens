@@ -1,5 +1,5 @@
 """
-conftest.py — shared pytest fixtures for tmdl-lens tests.
+conftest.py - shared pytest fixtures for tmdl-lens tests.
 
 All tests run against the bundled sample report in sample/.
 """
@@ -9,11 +9,11 @@ import sys
 
 import pytest
 
-# Make the repo root importable (src/ is not installed as a package).
+# Make the repo root importable (tmdl_lens/ is not installed as a package).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.source_resolver import resolve_sources  # noqa: E402
-from src.tmdl_parser import parse_semantic_model  # noqa: E402
+from tmdl_lens.source_resolver import resolve_sources  # noqa: E402
+from tmdl_lens.tmdl_parser import parse_semantic_model  # noqa: E402
 
 # Windows consoles often default to a legacy codec (e.g. cp1250). Force
 # UTF-8 for test output so unicode markers never crash the run.

@@ -1,8 +1,8 @@
 """
-config.py — Config read/write for tmdl-lens.
+config.py - Config read/write for tmdl-lens.
 
 Persists user settings to config.json in the same folder as the
-running script or executable. All keys are optional — defaults are
+running script or executable. All keys are optional - defaults are
 applied for anything missing.
 """
 
@@ -46,7 +46,7 @@ def _config_path() -> str:
     if getattr(sys, "frozen", False):
         base = os.path.dirname(sys.executable)
     else:
-        # __file__ is src/config.py — go up one level to reach repo root
+        # __file__ is tmdl_lens/config.py - go up one level to reach repo root
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, "config.json")
 

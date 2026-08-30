@@ -1,4 +1,4 @@
-// Measures table — no partition/source, DAX measures only
+// Measures table - no partition/source, DAX measures only
 // Parser must detect this as a measures-only table
 table _measures
 	lineageTag: 00000002-0000-0000-0000-000000000006

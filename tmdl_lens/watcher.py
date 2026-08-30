@@ -1,5 +1,5 @@
 """
-watcher.py — File watcher for tmdl-lens.
+watcher.py - File watcher for tmdl-lens.
 
 Monitors a reports folder for TMDL file changes and fires a callback
 with the resolved .pbip path after a configurable debounce window.

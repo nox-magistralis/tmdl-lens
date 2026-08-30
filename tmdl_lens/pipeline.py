@@ -18,9 +18,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from src.tmdl_parser import parse_semantic_model
-from src.source_resolver import resolve_sources
-from src.readme_generator import generate_readme, generate_html
+from tmdl_lens.tmdl_parser import parse_semantic_model
+from tmdl_lens.source_resolver import resolve_sources
+from tmdl_lens.readme_generator import generate_readme, generate_html
 
 
 # ---------------------------------------------------------------------------

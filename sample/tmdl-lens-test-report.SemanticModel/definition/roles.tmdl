@@ -1,25 +1,25 @@
 // ============================================================
 // tmdl-lens TEST ROLES FILE
 // Purpose: Covers RLS scenarios for parser testing
-// Roles are intentionally fictional — model will not load
+// Roles are intentionally fictional - model will not load
 // ============================================================
 
 
-// ── ROLE 1: Static RLS — single table filter ─────────────────────────────────
+// ── ROLE 1: Static RLS - single table filter ─────────────────────────────────
 role 'Regional Managers'
 	modelPermission: read
 
 	tablePermission 'fact-sales' = [region] = "North"
 
 
-// ── ROLE 2: Dynamic RLS — USERPRINCIPALNAME() ────────────────────────────────
+// ── ROLE 2: Dynamic RLS - USERPRINCIPALNAME() ────────────────────────────────
 role Employees
 	modelPermission: read
 
 	tablePermission 'dim-product' = USERPRINCIPALNAME() = [email]
 
 
-// ── ROLE 3: Dynamic RLS — USERNAME() ─────────────────────────────────────────
+// ── ROLE 3: Dynamic RLS - USERNAME() ─────────────────────────────────────────
 role 'Legacy Users'
 	modelPermission: read
 
@@ -35,6 +35,6 @@ role 'Area Supervisors'
 	tablePermission 'dim-product' = [category] = "Hardware"
 
 
-// ── ROLE 5: Full access — no table filters ────────────────────────────────────
+// ── ROLE 5: Full access - no table filters ────────────────────────────────────
 role Administrators
 	modelPermission: readRefresh

@@ -1,17 +1,18 @@
-# tmdl-lens user config — not committed, personal to each installation
+# tmdl-lens user config - not committed, personal to each installation
 config.json
 src/config.json
+tmdl_lens/config.json
 
-# Local AI tooling — personal, not committed
+# Local AI tooling - personal, not committed
 .clinerules
 AGENTS.md
 CLAUDE.md
 
-# Throwaway debug/test scripts at the repo root — never commit these
+# Throwaway debug/test scripts at the repo root - never commit these
 /debug*.py
 /test_*.py
 
-# Scratch output from verification runs — never commit these
+# Scratch output from verification runs - never commit these
 $Temp/
 
 # PyInstaller build output

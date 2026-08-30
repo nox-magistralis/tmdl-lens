@@ -1,8 +1,8 @@
 """
-source_resolver.py — Source resolution for tmdl-lens.
+source_resolver.py - Source resolution for tmdl-lens.
 
 Takes the raw SourceExpression list from tmdl_parser and resolves:
-  Tier 1  Direct source connectors — already fully classified by the parser.
+  Tier 1  Direct source connectors - already fully classified by the parser.
   Tier 2  Derived expressions, parameter references, custom function calls.
           These are followed one level and resolved to their root source.
   Tier 3  Dynamic M (string concatenation, runtime variables).
@@ -17,11 +17,11 @@ used by the README generator.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
-from src.tmdl_parser import SourceExpression, MParameter
+from tmdl_lens.tmdl_parser import SourceExpression, MParameter
 
 
 # ---------------------------------------------------------------------------
-# ResolvedSource — the final output of resolution
+# ResolvedSource - the final output of resolution
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -73,7 +73,7 @@ class ResolvedSource:
 
 
 # ---------------------------------------------------------------------------
-# Terminal source types — chain walking stops here
+# Terminal source types - chain walking stops here
 # ---------------------------------------------------------------------------
 
 _TERMINAL_TYPES = {
@@ -203,7 +203,7 @@ def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
                 return f"{friendly} -> {expr.entity}"
             return friendly
 
-        # 14. Unknown / new connector — show whatever detail we have
+        # 14. Unknown / new connector - show whatever detail we have
         #     with a generic "{namespace} -> {function}" fallback
         generic_name = f"{ns} -> {func}"
         if expr.server and expr.database:

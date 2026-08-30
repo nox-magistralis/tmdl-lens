@@ -1,5 +1,5 @@
 """
-tmdl_parser.py — Core TMDL semantic model parser for tmdl-lens.
+tmdl_parser.py - Core TMDL semantic model parser for tmdl-lens.
 
 Parses the /definition folder of a Power BI SemanticModel and produces
 a SemanticModel dataclass containing tables, relationships, measures,
@@ -96,13 +96,13 @@ class PhysicalTableRef:
 @dataclass
 class SourceExpression:
     """
-    One entry from expressions.tmdl — a shared M query or M parameter.
+    One entry from expressions.tmdl - a shared M query or M parameter.
     Also used for inline M sources classified directly from table files.
 
     source_type values:
       connector           any external data connector (identity in
                           connector_namespace/connector_function)
-      table_combine       Table.Combine({...}) — union of queries
+      table_combine       Table.Combine({...}) - union of queries
       embedded            Table.FromRows() hardcoded data
       hardcoded           #table(...) inline data
       derived             references another expression via Source = #"name"
@@ -188,7 +188,7 @@ class SemanticModel:
     database_compatibility_level: str = ""
 
 
-# Transformation functions — these are NOT sources, ignore them
+# Transformation functions - these are NOT sources, ignore them
 # when detecting `Table.Combine` specifically for appends/unions.
 _TRANSFORM_FNS = {
     "Table.NestedJoin",
@@ -300,8 +300,8 @@ def _extract_leading_comments(content: str) -> dict:
                 if next_indent == indent:
                     header = lines[i].strip()
                     mapping[header] = " ".join(comments)
-                    continue  # do NOT advance i — let the outer loop handle it
-            # If no header followed, don't advance — let outer loop continue
+                    continue  # do NOT advance i - let the outer loop handle it
+            # If no header followed, don't advance - let outer loop continue
             continue
         else:
             i += 1
@@ -309,7 +309,7 @@ def _extract_leading_comments(content: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tree node parser — shared indentation-tree infrastructure
+# Tree node parser - shared indentation-tree infrastructure
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -606,7 +606,7 @@ def _parse_calculation_items(content: str) -> list:
         children, _ = _parse_tree(lines, 1, header_indent)
         root = TmdlNode(key="", children=children)
 
-        # ordinal — parse integer, fall back to position
+        # ordinal - parse integer, fall back to position
         ordinal_node = _find_child(root, "ordinal")
         if ordinal_node:
             try:
@@ -616,11 +616,11 @@ def _parse_calculation_items(content: str) -> list:
         else:
             ordinal = position
 
-        # expression (DAX) — tree parser already handles triple-backtick dedent
+        # expression (DAX) - tree parser already handles triple-backtick dedent
         expr_node = _find_child(root, "expression")
         dax = expr_node.value if expr_node else ""
 
-        # formatStringExpression — strip quotes on inline values
+        # formatStringExpression - strip quotes on inline values
         fmt_node = _find_child(root, "formatStringExpression")
         if fmt_node and fmt_node.value:
             fmt_expr = fmt_node.value.strip().strip("'\"")
@@ -675,15 +675,15 @@ def _strip_m_comments(content: str) -> str:
 # Core inline source classifier
 #
 # Scans the full table file content (comments stripped) for connector
-# signatures. No M block extraction — we don't care where in the code
+# signatures. No M block extraction - we don't care where in the code
 # the connector appears, only that it's there and not inside a commented block.
 #
 # Priority order:
 #   1. Scalar helper (PBI_ResultType signals non-table output)
-#   2. Table.Combine / Table.Append — union source
-#   3. Inline / hardcoded — #table(...) or Table.FromRows(...)
-#   4. Generic connector — any Namespace.Function( pattern (primary path)
-#   5. Derived / derived_table — Source = #"name" or Source = TableName
+#   2. Table.Combine / Table.Append - union source
+#   3. Inline / hardcoded - #table(...) or Table.FromRows(...)
+#   4. Generic connector - any Namespace.Function( pattern (primary path)
+#   5. Derived / derived_table - Source = #"name" or Source = TableName
 #   6. Unresolved
 # ---------------------------------------------------------------------------
 
@@ -700,7 +700,7 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
         expr.source_type = "scalar_helper"
         return expr
 
-    # 2. Table.Combine / Table.Append — these ARE the source, not transformations
+    # 2. Table.Combine / Table.Append - these ARE the source, not transformations
     #    Uses balanced brace matching to handle nested {} inside arguments
     combine_match = re.search(r'\bTable\.(?:Combine|Append)\s*\(\s*\{', clean)
     if combine_match:
@@ -722,7 +722,7 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
             expr.combine_sources = [r.strip() for r in refs if r.strip()]
             return expr
 
-    # 3. Inline / hardcoded — these are NOT connectors, matches stay unchanged
+    # 3. Inline / hardcoded - these are NOT connectors, matches stay unchanged
     if "#table(" in clean:
         expr.source_type = "hardcoded"
         return expr
@@ -730,7 +730,7 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
         expr.source_type = "embedded"
         return expr
 
-    # 4. Generic connector detection — primary path for external connectors
+    # 4. Generic connector detection - primary path for external connectors
     #    Matches any Namespace.Function( call, excluding M stdlib and transforms
     generic = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
     if generic:
@@ -748,14 +748,14 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
             _extract_connector_details(expr, clean, namespace, function)
             return expr
 
-    # 5a. Derived — references a shared expression: Source = #"name"
+    # 5a. Derived - references a shared expression: Source = #"name"
     ref_quoted = re.search(r'\bSource\s*=\s*#"([^"]+)"', clean)
     if ref_quoted:
         expr.source_type = "derived"
         expr.derived_from = ref_quoted.group(1)
         return expr
 
-    # 5b. Derived table — bare table name as first Source step
+    # 5b. Derived table - bare table name as first Source step
     #     Matches: Source = SomeName, (with comma or newline after)
     #     Excludes known M stdlib prefixes and anything followed by (
     ref_bare = re.search(
@@ -982,7 +982,7 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
 # Table partition source_ref extractor
 #
 # Only returns a value when the partition source is a bare #"expression-name"
-# reference pointing to expressions.tmdl — no let block, no inline M.
+# reference pointing to expressions.tmdl - no let block, no inline M.
 # ---------------------------------------------------------------------------
 
 def _extract_partition_source_ref(content: str) -> str:
@@ -1202,7 +1202,7 @@ def _parse_roles(filepath: str) -> list:
         filters = []
         for child in root.children:
             if child.key.startswith("tablePermission"):
-                # key = "tablePermission '<table>'" — extract table name from key
+                # key = "tablePermission '<table>'" - extract table name from key
                 table_name = child.key[len("tablePermission"):].strip().strip("'\"")
                 filters.append(TableFilter(table=table_name, dax_filter=child.value))
 
@@ -1232,7 +1232,7 @@ def _parse_model_database(definition_path: str) -> tuple[str, str, str]:
     """
     Reads model.tmdl and database.tmdl for the three Overview-level fields
     in scope for this stage. Returns (culture, data_source_version,
-    compatibility_level) — each "" if the file or property is absent.
+    compatibility_level) - each "" if the file or property is absent.
     """
     culture = ""
     data_source_version = ""

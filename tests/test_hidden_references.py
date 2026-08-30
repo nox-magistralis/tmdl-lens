@@ -1,14 +1,14 @@
 """
-test_hidden_references.py — pytest tests for hidden-object reference
+test_hidden_references.py - pytest tests for hidden-object reference
 detection used by the README/HTML generators.
 """
 
-from src.readme_generator import (
+from tmdl_lens.readme_generator import (
     _build_hidden_reference_map,
     _find_hidden_references,
     _hidden_reference_note,
 )
-from src.tmdl_parser import Column, Measure, SemanticModel, Table
+from tmdl_lens.tmdl_parser import Column, Measure, SemanticModel, Table
 
 
 def _build_test_model() -> SemanticModel:

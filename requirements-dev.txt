@@ -5,5 +5,9 @@
 # Testing
 pytest>=8.0.0
 
+# Building and publishing the PyPI package
+build>=1.2.0
+twine>=5.0.0
+
 # Packaging the standalone .exe
 pyinstaller>=6.0.0

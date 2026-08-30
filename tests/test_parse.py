@@ -1,5 +1,5 @@
 """
-test_parse.py — pytest tests for tmdl_parser and source_resolver.
+test_parse.py - pytest tests for tmdl_parser and source_resolver.
 
 Run from the repo root:  python -m pytest
 """
