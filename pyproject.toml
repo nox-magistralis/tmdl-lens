@@ -24,6 +24,10 @@ classifiers = [
 dynamic = ["version"]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/nox-magistralis/tmdl-lens"
+Repository = "https://github.com/nox-magistralis/tmdl-lens"
+
 [project.optional-dependencies]
 gui = ["customtkinter>=5.2.0", "watchdog>=4.0.0"]
 
