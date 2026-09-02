@@ -6,6 +6,7 @@ from tmdl_lens.tmdl_parser import (
     _dedent,
     _extract_blocks,
     _extract_connector_details,
+    _parse_calculation_items,
     _parse_tree,
     _strip_m_comments,
 )
@@ -188,3 +189,72 @@ def test_connector_details_navigation_fallback():
     assert expr.physical_tables[0].schema == "dbo"
     assert expr.physical_tables[0].table == "orders"
     assert expr.physical_tables[0].source == "navigation"
+
+
+def test_calc_items_inline_fenced_expression():
+    content = (
+        "table 'Time Intelligence'\n"
+        "\tcalculationGroup\n"
+        "\n"
+        "\t\tcalculationItem MTD = ```\n"
+        "\t\t\tCALCULATE(\n"
+        "\t\t\t\tSELECTEDMEASURE(),\n"
+        "\t\t\t\tDATESMTD('Date'[date])\n"
+        "\t\t\t)\n"
+        "\t\t\t```\n"
+        "\n"
+        "\t\tcalculationItem 'Rolling 12M' = ```\n"
+        "\t\t\tDIVIDE(\n"
+        "\t\t\t\tSELECTEDMEASURE() - CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('Date'[date])),\n"
+        "\t\t\t\tCALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('Date'[date]))\n"
+        "\t\t\t)\n"
+        "\t\t\t```\n"
+    )
+    items = _parse_calculation_items(content)
+    assert [it.name for it in items] == ["MTD", "Rolling 12M"]
+    mtd = items[0]
+    assert mtd.ordinal == 0
+    assert mtd.dax_expression.startswith("CALCULATE(")
+    assert "DATESMTD('Date'[date])" in mtd.dax_expression
+    assert mtd.format_string_expression == ""
+    assert "SAMEPERIODLASTYEAR" in items[1].dax_expression
+
+
+def test_calc_items_property_style():
+    content = (
+        "table 'Time Intelligence'\n"
+        "\tcalculationGroup\n"
+        "\t\tcalculationItem 'Rolling 12M'\n"
+        "\t\t\tordinal: 2\n"
+        "\t\t\texpression = ```\n"
+        "\t\t\t\tCALCULATE(SELECTEDMEASURE(), DATESINPERIOD('Date'[date], LASTDATE('Date'[date]), -12, MONTH))\n"
+        "\t\t\t\t```\n"
+        "\t\t\tformatStringExpression = \"0.00%\"\n"
+    )
+    items = _parse_calculation_items(content)
+    assert len(items) == 1
+    it = items[0]
+    assert it.name == "Rolling 12M"
+    assert it.ordinal == 2
+    assert "DATESINPERIOD" in it.dax_expression
+    assert it.format_string_expression == "0.00%"
+
+
+def test_calc_items_inline_with_ordinal_and_format_children():
+    content = (
+        "table 'Time Intelligence'\n"
+        "\tcalculationGroup\n"
+        "\t\tcalculationItem MTD = ```\n"
+        "\t\t\tCALCULATE(SELECTEDMEASURE(), DATESMTD('Date'[date]))\n"
+        "\t\t\t```\n"
+        "\t\t\tordinal: 3\n"
+        "\t\t\tformatStringExpression = ```\n"
+        "\t\t\t\tSELECTEDMEASUREFORMATSTRING()\n"
+        "\t\t\t\t```\n"
+    )
+    items = _parse_calculation_items(content)
+    assert len(items) == 1
+    it = items[0]
+    assert it.ordinal == 3
+    assert "DATESMTD" in it.dax_expression
+    assert it.format_string_expression == "SELECTEDMEASUREFORMATSTRING()"

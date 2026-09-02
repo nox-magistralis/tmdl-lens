@@ -590,12 +590,44 @@ def _dedent(text: str) -> str:
     return "\n".join(l[min_indent:] if len(l) >= min_indent else l for l in lines).strip()
 
 
+def _split_prop_value(stripped: str) -> str:
+    """Return the inline value after the first '=' or ':' on a property line."""
+    for sep in ("=", ":"):
+        if sep in stripped:
+            return stripped.split(sep, 1)[1].strip()
+    return ""
+
+
+def _read_fenced_value(lines: list, start: int) -> tuple[str, int]:
+    """Read a triple-backtick value whose content starts at line index `start`
+    (right after the opening fence). Returns (value, next_line_index); the
+    closing ``` line is consumed when present, a missing fence reads to EOF.
+    """
+    raw = []
+    i = start
+    while i < len(lines) and lines[i].strip() != "```":
+        raw.append(lines[i])
+        i += 1
+    i += 1  # skip the closing fence (or run just past EOF)
+    return _dedent("\n".join(raw)), i
+
+
+# Property lines that can appear under a calculationItem - the fallback DAX
+# scan stops at the first one (mirrors _parse_measure's property stop-list).
+_PROP_START_RE = re.compile(
+    r"^(?:ordinal|expression|formatStringExpression|formatString|"
+    r"displayFolder|lineageTag|isHidden|annotation|description)\b"
+)
+
+
 def _parse_calculation_items(content: str) -> list:
     items = []
     blocks = _extract_blocks(content, "calculationItem ")
     for position, block in enumerate(blocks):
         lines = block.split("\n")
         header = lines[0].strip()
+        header_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
+
         name_m = (
             re.match(r"calculationItem\s+'([^']+)'", header) or
             re.match(r'calculationItem\s+"([^"]+)"', header) or
@@ -605,31 +637,83 @@ def _parse_calculation_items(content: str) -> list:
             continue
         name = name_m.group(1).strip()
 
-        # Tree-parse the children
-        header_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
-        children, _ = _parse_tree(lines, 1, header_indent)
-        root = TmdlNode(key="", children=children)
+        # Inline expression on the header line: calculationItem NAME = <dax>
+        rest = header[name_m.end():].strip()
+        inline_rhs = rest[1:].strip() if rest.startswith("=") else ""
 
-        # ordinal - parse integer, fall back to position
-        ordinal_node = _find_child(root, "ordinal")
-        if ordinal_node:
-            try:
-                ordinal = int(ordinal_node.value)
-            except ValueError:
-                ordinal = position
-        else:
-            ordinal = position
+        dax = ""
+        ordinal = position
+        fmt_expr = ""
 
-        # expression (DAX) - tree parser already handles triple-backtick dedent
-        expr_node = _find_child(root, "expression")
-        dax = expr_node.value if expr_node else ""
+        # Style A: calculationItem NAME = ``` <DAX> ``` (DAX fenced on header)
+        child_start = 1
+        if inline_rhs.startswith("```"):
+            dax, child_start = _read_fenced_value(lines, 1)
+        elif inline_rhs:
+            dax = inline_rhs
 
-        # formatStringExpression - strip quotes on inline values
-        fmt_node = _find_child(root, "formatStringExpression")
-        if fmt_node and fmt_node.value:
-            fmt_expr = fmt_node.value.strip().strip("'\"")
-        else:
-            fmt_expr = ""
+        # Style B: DAX lives under an `expression` child property.
+        expr_prop = ""
+
+        # Walk the remaining child lines for ordinal / expression /
+        # formatStringExpression, stopping at a sibling line.
+        i = child_start
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if not stripped:
+                i += 1
+                continue
+            indent = len(line) - len(line.lstrip("\t "))
+            if indent <= header_indent:
+                break
+            if stripped == "```":
+                i += 1
+                continue
+            if stripped.startswith("ordinal"):
+                try:
+                    ordinal = int(_split_prop_value(stripped))
+                except ValueError:
+                    pass
+                i += 1
+            elif stripped.startswith("expression"):
+                val = _split_prop_value(stripped)
+                if val.startswith("```"):
+                    expr_prop, i = _read_fenced_value(lines, i + 1)
+                else:
+                    expr_prop = val
+                    i += 1
+            elif stripped.startswith("formatStringExpression"):
+                val = _split_prop_value(stripped)
+                if val.startswith("```"):
+                    fmt_expr, i = _read_fenced_value(lines, i + 1)
+                else:
+                    fmt_expr = val.strip().strip("'\"")
+                    i += 1
+            else:
+                i += 1
+
+        if not dax and expr_prop:
+            dax = expr_prop
+
+        # Fallback: DAX written directly under the item header without an
+        # inline = or expression property (measure-like multiline layout).
+        if not dax:
+            raw = []
+            for line in lines[1:]:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                indent = len(line) - len(line.lstrip("\t "))
+                if indent <= header_indent:
+                    break
+                if _PROP_START_RE.match(stripped):
+                    break
+                if stripped == "```":
+                    continue
+                raw.append(line)
+            if raw:
+                dax = _dedent("\n".join(raw)).rstrip("`").strip()
 
         items.append(CalculationItem(
             name=name,
