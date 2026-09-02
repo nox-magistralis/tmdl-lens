@@ -58,6 +58,11 @@ class ResolvedSource:
 
     # Web / OData
     url: str = ""
+
+    # Azure Storage
+    account: str = ""
+    container: str = ""
+
     physical_tables: list = field(default_factory=list)
 
     # Derivation chain
@@ -83,10 +88,12 @@ _TERMINAL_TYPES = {
     "function_def", "scalar_helper",
 }
 
-# (namespace, function) -> friendly display name
-# Only covers known connector types; unknown connectors fall back to
-# "{namespace} -> {function}" with available detail fields.
-_CONNECTOR_DISPLAY = {
+# (namespace, function) -> short display label for the Source Type column
+# and for the resolver label builder. Single shared source of truth used by
+# both source_resolver and readme_generator. Unknown connectors fall back to
+# "{namespace} -> {function}" (resolver) / "{namespace} {function}" (renderer)
+# with whatever detail fields were captured.
+CONNECTOR_TYPE_LABEL = {
     ("PowerBI", "Dataflows"):             "Power BI Dataflow",
     ("PowerPlatform", "Dataflows"):        "Power Platform Dataflow",
     ("Sql", "Database"):                  "SQL",
@@ -107,6 +114,23 @@ _CONNECTOR_DISPLAY = {
     ("GoogleSheets", "Contents"):         "Google Sheets",
     ("QuickBooks", "Contents"):           "QuickBooks",
     ("GitHub", "Contents"):               "GitHub",
+    ("Oracle", "Database"):               "Oracle",
+    ("MySql", "Database"):                "MySQL",
+    ("PostgreSQL", "Database"):           "PostgreSQL",
+    ("DB2", "Database"):                  "IBM Db2",
+    ("SapHana", "Database"):              "SAP HANA",
+    ("Snowflake", "Database"):            "Snowflake",
+    ("Snowflake", "Databases"):           "Snowflake",
+    ("Teradata", "Database"):             "Teradata",
+    ("Databricks", "Catalogs"):           "Databricks",
+    ("Databricks", "Contents"):           "Databricks",
+    ("Salesforce", "Data"):               "Salesforce",
+    ("Salesforce", "Reports"):            "Salesforce",
+    ("AzureStorage", "Blobs"):            "Azure Blob Storage",
+    ("AzureStorage", "BlobContents"):     "Azure Blob Storage",
+    ("AzureStorage", "Table"):            "Azure Table Storage",
+    ("AzureStorage", "DataLake"):         "Azure Data Lake Storage",
+    ("AzureStorage", "DataLakeContents"): "Azure Data Lake Storage",
 }
 
 
@@ -193,12 +217,16 @@ def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
             return f"Dataverse -> {expr.url or '?'}"
 
         # 13. Named platform connectors with populated detail
-        friendly = _CONNECTOR_DISPLAY.get((ns, func))
+        friendly = CONNECTOR_TYPE_LABEL.get((ns, func))
         if friendly:
             if expr.url:
                 return f"{friendly} -> {expr.url}"
             if expr.server and expr.database:
                 return f"{friendly} -> {expr.server} -> {expr.database}"
+            if expr.account and expr.container:
+                return f"{friendly} -> {expr.account} -> {expr.container}"
+            if expr.account:
+                return f"{friendly} -> {expr.account}"
             if expr.entity:
                 return f"{friendly} -> {expr.entity}"
             return friendly
@@ -208,6 +236,10 @@ def _build_label(expr: SourceExpression, params: dict[str, str]) -> str:
         generic_name = f"{ns} -> {func}"
         if expr.server and expr.database:
             return f"{generic_name} -> {expr.server} -> {expr.database}"
+        if expr.account and expr.container:
+            return f"{generic_name} -> {expr.account} -> {expr.container}"
+        if expr.account:
+            return f"{generic_name} -> {expr.account}"
         if expr.url:
             return f"{generic_name} -> {expr.url}"
         if expr.entity:
@@ -452,6 +484,8 @@ def _from_expr(expr: SourceExpression, params: dict[str, str], tier: int) -> Res
         file_name=expr.file_name,
         sheet_name=expr.sheet_name,
         url=expr.url,
+        account=expr.account,
+        container=expr.container,
         physical_tables=list(expr.physical_tables),
     )
     rs.label = _build_label(expr, params)
@@ -479,6 +513,8 @@ def _copy_resolved(name: str, parent: ResolvedSource, tier: int) -> ResolvedSour
         file_name=parent.file_name,
         sheet_name=parent.sheet_name,
         url=parent.url,
+        account=parent.account,
+        container=parent.container,
         physical_tables=list(parent.physical_tables),
         label=parent.label,
     )

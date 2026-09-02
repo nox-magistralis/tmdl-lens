@@ -145,6 +145,10 @@ class SourceExpression:
     # Web / OData fields
     url: str = ""
 
+    # Azure Storage fields
+    account: str = ""
+    container: str = ""
+
     # Derived / combine fields
     derived_from: str = ""
     combine_sources: list = field(default_factory=list)
@@ -958,6 +962,20 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
         if namespace in patterns:
             quoted_pattern, bare_pattern = patterns[namespace]
             expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
+
+    elif namespace == "Salesforce" and function in ("Data", "Reports"):
+        quoted_pattern = r"Salesforce\.(?:Data|Reports)\s*\(\s*\"([^\"]+)\""
+        bare_pattern = r"Salesforce\.(?:Data|Reports)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)"
+        expr.url = _extract_string_or_param_arg(clean, quoted_pattern, bare_pattern) or ""
+
+    elif namespace == "AzureStorage" and function in ("Blobs", "BlobContents", "Table", "DataLake", "DataLakeContents"):
+        acct_quoted = r"AzureStorage\.(?:Blobs|BlobContents|Table|DataLake|DataLakeContents)\s*\(\s*\"([^\"]*)\""
+        acct_bare = r"AzureStorage\.(?:Blobs|BlobContents|Table|DataLake|DataLakeContents)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)"
+        expr.account = _extract_string_or_param_arg(clean, acct_quoted, acct_bare) or ""
+        if function in ("Blobs", "BlobContents", "DataLake", "DataLakeContents"):
+            cont_quoted = r"AzureStorage\.(?:Blobs|BlobContents|DataLake|DataLakeContents)\s*\([^,]+,\s*\"([^\"]*)\""
+            cont_bare = r"AzureStorage\.(?:Blobs|BlobContents|DataLake|DataLakeContents)\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)"
+            expr.container = _extract_string_or_param_arg(clean, cont_quoted, cont_bare) or ""
 
     # ARCH-03 - unconditional navigation fallbacks.
     # Pattern A (Schema/Item) and Pattern B (Name chain) are Power BI's own
