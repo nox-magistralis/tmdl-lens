@@ -10,8 +10,9 @@ from tmdl_lens.source_resolver import (
     _unresolved,
     get_table_source,
     list_unresolved,
+    resolve_sources,
 )
-from tmdl_lens.tmdl_parser import SourceExpression, Table
+from tmdl_lens.tmdl_parser import SourceExpression, Table, _classify_m_content
 
 
 def test_label_native_query_sql():
@@ -148,3 +149,107 @@ def test_list_unresolved():
     }
     names = [rs.expression_name for rs in list_unresolved(resolved)]
     assert names == ["a"]
+
+def test_resolve_expression_referencing_inline_table():
+    dose_log = Table(
+        name="dose-log",
+        table_type="fact",
+        partition_type="m",
+        inline_source=_classify_m_content(
+            'let\n'
+            '    Source = SharePoint.Files("https://contoso.sharepoint.com/sites/dose")\n'
+            'in\n'
+            '    Source',
+            "dose-log",
+        ),
+    )
+    per_dose = _classify_m_content(
+        'let\n'
+        '    Source = #"dose-log"\n'
+        'in\n'
+        '    Source',
+        "dose-log-per-dose-source",
+    )
+    resolved = resolve_sources([per_dose], [], tables=[dose_log])
+    rs = resolved["dose-log-per-dose-source"]
+    assert rs.unresolved is False
+    assert rs.derived_from == "dose-log"
+    assert rs.chain[0] == "dose-log"
+    assert rs.sharepoint_url == "https://contoso.sharepoint.com/sites/dose"
+
+
+def test_resolve_inline_alias_from_parser():
+    shared = SourceExpression(
+        name="cmo-mapping-source",
+        source_type="connector",
+        connector_namespace="SharePoint",
+        connector_function="Files",
+        sharepoint_url="https://contoso.sharepoint.com/sites/dose",
+    )
+    cmo = Table(
+        name="cmo_capacity",
+        table_type="fact",
+        partition_type="m",
+        inline_source=_classify_m_content(
+            'let\n'
+            '    wb = #"cmo-mapping-source"\n'
+            'in\n'
+            '    wb',
+            "cmo_capacity",
+        ),
+    )
+    resolved = resolve_sources([shared], [], tables=[cmo])
+    rs = resolved["cmo_capacity"]
+    assert rs.unresolved is False
+    assert rs.derived_from == "cmo-mapping-source"
+    assert rs.connector_namespace == "SharePoint"
+
+
+def test_resolve_inline_reference_to_source_ref_table():
+    direct = SourceExpression(
+        name="source-sql-direct",
+        source_type="connector",
+        connector_namespace="Sql",
+        connector_function="Database",
+        server="srv",
+        database="db",
+        schema="dbo",
+        table_or_view="orders",
+    )
+    alias_tbl = Table(
+        name="dose-log",
+        table_type="fact",
+        partition_type="m",
+        source_ref="source-sql-direct",
+    )
+    dep_tbl = Table(
+        name="dose-log-per-dose",
+        table_type="fact",
+        partition_type="m",
+        inline_source=_classify_m_content(
+            'let\n'
+            '    Source = #"dose-log"\n'
+            'in\n'
+            '    Source',
+            "dose-log-per-dose",
+        ),
+    )
+    resolved = resolve_sources([direct], [], tables=[alias_tbl, dep_tbl])
+    rs = resolved["dose-log-per-dose"]
+    assert rs.unresolved is False
+    assert rs.derived_from == "dose-log"
+    assert rs.server == "srv"
+
+
+def test_resolve_expression_referencing_missing_target():
+    expr = _classify_m_content(
+        'let\n'
+        '    Source = #"ghost"\n'
+        'in\n'
+        '    Source',
+        "x",
+    )
+    resolved = resolve_sources([expr], [], tables=[])
+    rs = resolved["x"]
+    assert rs.unresolved is True
+    assert "ghost" in rs.unresolved_reason

@@ -14,7 +14,7 @@ See a [real example output](sample/README.md) generated from the included sample
 
 Each generated README includes:
 
-- **Data Sources** - connector type and resolved source detail for every query, covering 30+ connectors including SQL, Dataflows, SharePoint, Excel, OData, Azure storage, Fabric, Databricks, Snowflake, Salesforce, and more. Unknown connectors are auto-detected and flagged for manual labelling.
+- **Data Sources** - connector type and resolved source detail for every query. 30+ Power Query connector functions have dedicated labels (SQL, Dataflows, SharePoint, Excel, OData, Azure Blob/Table/Data Lake storage, Databricks, Snowflake, Salesforce, Oracle, PostgreSQL, SAP HANA, and more); any connector without a dedicated label is still auto-detected from the query and shown with its namespace and function for manual labelling.
 - **Table Details** - table type, source detail, and column list
 - **Measures** - full DAX (optional), display folder, and format string
 - **Relationships** - cardinality, cross-filter direction, and active/inactive state
@@ -105,6 +105,41 @@ The command-line core has no third-party dependencies (pure Python standard libr
 Python 3.12 or later required when running from source.
 
 ---
+
+## Compatibility & Public API
+
+The items below are the public contract of `tmdl-lens`. They are frozen from
+version 1.0.0 - changing, renaming or removing any of them is a breaking
+change and requires a new major version, announced in the GitHub release notes.
+
+**CLI flags** (`tmdl-lens` command):
+
+`--version`, `-r` / `--reports-folder`, `-o` / `--output-folder`,
+`--format` (`html` or `md`), `--include-dax` / `--no-include-dax`,
+`--overwrite` / `--no-overwrite`, `--skip-unchanged` / `--no-skip-unchanged`,
+`--owner`, `--team`, `--refresh-schedule`, `--config`, `-q` / `--quiet`.
+
+**Exit codes:** `0` success; `1` a report failed or the reports folder does
+not exist; `2` `--reports-folder` is missing.
+
+**`config.json` keys:** `reports_folder`, `output_folder`, `output_format`,
+`overwrite_readme`, `include_dax`, `skip_unchanged`, `watch_debounce`,
+`owner`, `team`, `refresh_schedule`, `file_hashes`, `features.watcher`.
+
+Not part of the contract: importing `tmdl_lens.*` as a Python library (the
+package is distributed for its CLI - the module layout may change) and the
+exact wording or layout of the generated HTML/Markdown (best effort).
+
+## Limitations
+
+- Import-mode PBIP reports only. Live Connection, Direct Lake and other
+  models without a `definition/` TMDL folder are not documented.
+- Connectors are detected from the query text. Known connectors get a
+  dedicated label; anything else is shown with its Power Query namespace and
+  function and is meant to be labelled manually.
+- The parser targets the TMDL shapes seen in real PBIP projects, but the
+  format keeps evolving - an unhandled object type is reported rather than
+  crashing.
 
 ## Development
 

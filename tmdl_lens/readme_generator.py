@@ -8,7 +8,7 @@ a structured README.md for each Power BI report.
 import re
 from datetime import date
 from tmdl_lens.tmdl_parser import SemanticModel, Table
-from tmdl_lens.source_resolver import ResolvedSource, get_table_source
+from tmdl_lens.source_resolver import CONNECTOR_TYPE_LABEL, ResolvedSource, get_table_source
 
 
 # ---------------------------------------------------------------------------
@@ -48,41 +48,8 @@ def _source_type_label(source_type: str) -> str:
     return _SOURCE_TYPE_LABEL.get(source_type, source_type.replace("_", " ").title())
 
 
-# (namespace, function) -> short display name for the Source Type column.
-# Duplicated locally from source_resolver.py's _CONNECTOR_DISPLAY (private)
-# plus entries for database connectors not in that dict, to avoid a new
-# cross-module dependency. Unknown connectors fall back to "{namespace} {function}".
-_CONNECTOR_TYPE_LABEL = {
-    ("PowerBI", "Dataflows"):               "Power BI Dataflow",
-    ("PowerPlatform", "Dataflows"):          "Power Platform Dataflow",
-    ("Sql", "Database"):                    "SQL",
-    ("AzureSQL", "Database"):               "SQL",
-    ("AmazonRedshift", "Database"):         "SQL",
-    ("Odbc", "DataSource"):                 "ODBC",
-    ("SharePoint", "Files"):                "SharePoint Files",
-    ("SharePoint", "Tables"):               "SharePoint List",
-    ("Excel", "Workbook"):                  "Excel",
-    ("Csv", "Document"):                    "CSV (local)",
-    ("Web", "Contents"):                    "Web API",
-    ("OData", "Feed"):                      "OData",
-    ("SmartsheetGlobal", "Contents"):       "Smartsheet",
-    ("Smartsheet", "Tables"):               "Smartsheet",
-    ("Dataverse", "Feed"):                  "Dataverse",
-    ("AzureDevOps", "Contents"):            "Azure DevOps",
-    ("Dynamics365", "FinanceAndOperations"):"Dynamics 365 F&O",
-    ("GoogleSheets", "Contents"):           "Google Sheets",
-    ("QuickBooks", "Contents"):             "QuickBooks",
-    ("GitHub", "Contents"):                 "GitHub",
-    ("Oracle", "Database"):                 "Oracle",
-    ("MySql", "Database"):                  "MySQL",
-    ("PostgreSQL", "Database"):             "PostgreSQL",
-    ("DB2", "Database"):                    "IBM Db2",
-    ("SapHana", "Database"):                "SAP HANA",
-    ("Snowflake", "Database"):              "Snowflake",
-    ("Teradata", "Database"):               "Teradata",
-    ("Databricks", "Catalogs"):             "Databricks",
-    ("Databricks", "Contents"):             "Databricks",
-}
+# Connector type labels: single source of truth is
+# source_resolver.CONNECTOR_TYPE_LABEL, imported at the top of this module.
 
 def _connector_type_label(rs: ResolvedSource) -> str:
     """Return a short Source Type display name for a ResolvedSource.
@@ -90,7 +57,7 @@ def _connector_type_label(rs: ResolvedSource) -> str:
     back to _source_type_label for non-connector types."""
     if rs.source_type == "connector":
         key = (rs.connector_namespace, rs.connector_function)
-        label = _CONNECTOR_TYPE_LABEL.get(key)
+        label = CONNECTOR_TYPE_LABEL.get(key)
         if label:
             return label
         return f"{rs.connector_namespace} {rs.connector_function}"
@@ -330,7 +297,7 @@ def _table_detail_block(
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
         # Oracle/MySql/PostgreSQL/DB2/SapHana/Snowflake .Database
-        if rs.source_type == "connector" and rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake") and rs.connector_function == "Database":
+        if rs.source_type == "connector" and rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake") and rs.connector_function in ("Database", "Databases"):
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
@@ -355,6 +322,15 @@ def _table_detail_block(
         ):
             if rs.url:
                 lines.append(f"**URL:** `{rs.url}`  ")
+        # Salesforce Data / Reports
+        if rs.source_type == "connector" and rs.connector_namespace == "Salesforce" and rs.url:
+            lines.append(f"**URL:** `{rs.url}`  ")
+        # AzureStorage Blobs/BlobContents/Table/DataLake/DataLakeContents
+        if rs.source_type == "connector" and rs.connector_namespace == "AzureStorage":
+            if rs.account:
+                lines.append(f"**Account:** `{rs.account}`  ")
+            if rs.container:
+                lines.append(f"**Container:** `{rs.container}`  ")
         # ODBC .DataSource
         if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
             lines.append(f"**DSN:** `{rs.dsn}`  ")
