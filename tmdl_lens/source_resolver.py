@@ -307,6 +307,8 @@ def resolve_sources(
     for tbl in tables:
         if tbl.inline_source is not None:
             inline_map[tbl.name] = tbl.inline_source
+    table_ref = {t.name: t.source_ref for t in tables if t.source_ref}
+    model_table_names = {t.name for t in tables}
 
     resolved: dict[str, ResolvedSource] = {}
 
@@ -321,6 +323,7 @@ def resolve_sources(
 
     # Pass 2: resolve derived / custom_function from expressions.tmdl
     max_passes = 10
+    deferred: dict[str, SourceExpression] = {}
     for _ in range(max_passes):
         unresolved_tier2 = [
             e for e in source_expressions
@@ -332,16 +335,14 @@ def resolve_sources(
             if expr.source_type == "derived":
                 parent_name = expr.derived_from
                 if parent_name in resolved:
-                    parent = resolved[parent_name]
-                    rs = _copy_resolved(expr.name, parent, tier=2)
-                    rs.derived_from = parent_name
-                    rs.chain = [parent_name] + parent.chain
-                    rs.label = _build_chain_label([parent_name], _terminal_label(parent))
-                    resolved[expr.name] = rs
+                    resolved[expr.name] = _derived_copy(expr.name, parent_name, resolved[parent_name])
                 elif parent_name not in expr_map:
-                    resolved[expr.name] = _unresolved(
-                        expr.name, f"references '{parent_name}' which does not exist"
-                    )
+                    if parent_name in model_table_names:
+                        deferred.setdefault(expr.name, expr)
+                    else:
+                        resolved[expr.name] = _unresolved(
+                            expr.name, f"references '{parent_name}' which does not exist"
+                        )
 
             elif expr.source_type == "custom_function":
                 fn_name = expr.function_name
@@ -361,23 +362,58 @@ def resolve_sources(
                         expr.name, f"calls function '{fn_name}' which is not defined in this model"
                     )
 
-    # Pass 3: resolve inline sources from table files
+    # Pass 3: resolve inline table sources and deferred expressions together,
+    # so chains that cross between shared expressions and loaded tables settle.
     all_inline = list(inline_map.items())
     for _ in range(max_passes):
-        pending = [(name, expr) for name, expr in all_inline if name not in resolved]
-        if not pending:
+        pending_tables = [(name, expr) for name, expr in all_inline if name not in resolved]
+        pending_deferred = [e for e in deferred.values() if e.name not in resolved]
+        if not pending_tables and not pending_deferred:
             break
         made_progress = False
-        for table_name, expr in pending:
-            rs = _resolve_inline(table_name, expr, resolved, expr_map, inline_map, params)
+
+        for table_name, expr in pending_tables:
+            rs = _resolve_inline(
+                table_name, expr, resolved, expr_map, inline_map, params, table_ref=table_ref
+            )
             if rs is not None:
                 if table_name in manual_overrides:
                     rs.manual_label = manual_overrides[table_name]
                     rs.label        = manual_overrides[table_name]
                 resolved[table_name] = rs
                 made_progress = True
+
+        for expr in pending_deferred:
+            parent_name = expr.derived_from
+            anchor = table_ref.get(parent_name)
+            if parent_name in resolved:
+                resolved[expr.name] = _derived_copy(expr.name, parent_name, resolved[parent_name])
+                made_progress = True
+            elif anchor and anchor in resolved:
+                resolved[expr.name] = _derived_copy(expr.name, parent_name, resolved[anchor])
+                made_progress = True
+            elif parent_name in inline_map or (anchor and anchor in expr_map):
+                pass
+            else:
+                resolved[expr.name] = _unresolved(
+                    expr.name, f"references '{parent_name}' which does not exist"
+                )
+                made_progress = True
+
         if not made_progress:
             break
+
+    for expr in deferred.values():
+        if expr.name not in resolved:
+            parent_name = expr.derived_from
+            if parent_name in model_table_names:
+                resolved[expr.name] = _unresolved(
+                    expr.name, f"references '{parent_name}' which has no resolvable source"
+                )
+            else:
+                resolved[expr.name] = _unresolved(
+                    expr.name, f"references '{parent_name}' which does not exist"
+                )
 
     # Pass 4: anything still unresolved
     for expr in source_expressions:
@@ -417,7 +453,9 @@ def _resolve_inline(
     expr_map: dict[str, SourceExpression],
     inline_map: dict[str, SourceExpression],
     params: dict[str, str],
+    table_ref: Optional[dict[str, str]] = None,
 ) -> Optional[ResolvedSource]:
+    table_ref = table_ref or {}
     t = expr.source_type
 
     if t in _TERMINAL_TYPES:
@@ -426,31 +464,24 @@ def _resolve_inline(
     if t == "table_combine":
         return _from_expr(expr, params, tier=1)
 
-    if t == "derived_table":
+    if t in ("derived", "derived_table"):
         parent_name = expr.derived_from
         if parent_name in resolved:
-            parent = resolved[parent_name]
-            rs = _copy_resolved(table_name, parent, tier=2)
-            rs.derived_from = parent_name
-            rs.chain = [parent_name] + parent.chain
-            rs.label = _build_chain_label([parent_name], _terminal_label(parent))
-            return rs
-        if parent_name not in resolved and parent_name not in inline_map and parent_name not in expr_map:
-            return _unresolved(table_name, f"references '{parent_name}' which does not exist in this model")
-        return None  # retry next pass
-
-    if t == "derived":
-        parent_name = expr.derived_from
-        if parent_name in resolved:
-            parent = resolved[parent_name]
-            rs = _copy_resolved(table_name, parent, tier=2)
-            rs.derived_from = parent_name
-            rs.chain = [parent_name] + parent.chain
-            rs.label = _build_chain_label([parent_name], _terminal_label(parent))
-            return rs
+            return _derived_copy(table_name, parent_name, resolved[parent_name])
+        anchor = table_ref.get(parent_name)
+        if anchor:
+            if anchor in resolved:
+                return _derived_copy(table_name, parent_name, resolved[anchor])
+            if anchor in expr_map or anchor in inline_map:
+                return None
         if parent_name not in expr_map and parent_name not in inline_map:
-            return _unresolved(table_name, f"references '{parent_name}' which does not exist")
-        return None  # retry
+            reason = (
+                f"references '{parent_name}' which does not exist in this model"
+                if t == "derived_table"
+                else f"references '{parent_name}' which does not exist"
+            )
+            return _unresolved(table_name, reason)
+        return None  # retry next pass
 
     return _unresolved(table_name, f"Unrecognised inline source type: {t}")
 
@@ -518,6 +549,14 @@ def _copy_resolved(name: str, parent: ResolvedSource, tier: int) -> ResolvedSour
         physical_tables=list(parent.physical_tables),
         label=parent.label,
     )
+
+
+def _derived_copy(name: str, parent_name: str, parent: ResolvedSource) -> ResolvedSource:
+    rs = _copy_resolved(name, parent, tier=2)
+    rs.derived_from = parent_name
+    rs.chain = [parent_name] + parent.chain
+    rs.label = _build_chain_label([parent_name], _terminal_label(parent))
+    return rs
 
 
 def _unresolved(name: str, reason: str) -> ResolvedSource:

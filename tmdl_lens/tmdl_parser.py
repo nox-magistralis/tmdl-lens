@@ -427,10 +427,15 @@ def _parse_column(block: str, description: str = "") -> Optional[Column]:
     lines = block.split("\n")
     header = lines[0].strip()
 
-    # Detect calculated column: column 'Name' = <dax> or column "Name" = <dax>
-    calc = re.match(r"column\s+'(.+?)'\s*=|column\s+\"(.+?)\"\s*=", header)
+    # Detect calculated column: column 'Name' = <dax>, column "Name" = <dax>
+    # or a bare simple name - column Name = <dax>
+    calc = re.match(
+        r"column\s+'(.+?)'\s*=|column\s+\"(.+?)\"\s*=|column\s+([^\s'\"=]+?)\s*=",
+        header,
+    )
+
     if calc:
-        name = (calc.group(1) or calc.group(2)).strip()
+        name = (calc.group(1) or calc.group(2) or calc.group(3)).strip()
         # Parse children via tree parser
         base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
         children, _ = _parse_tree(lines, 1, base_indent)
@@ -438,7 +443,10 @@ def _parse_column(block: str, description: str = "") -> Optional[Column]:
 
         # DAX: inline from header, or accumulated from children before known properties
         dax = ""
-        inline_dax_match = re.match(r"column\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
+        inline_dax_match = re.match(
+            r"column\s+(?:'[^']+'|\"[^\"]+\"|[^\s'\"]+?)\s*=\s*(.+)$", header
+        )
+
         if inline_dax_match:
             dax = inline_dax_match.group(1).strip().rstrip("`").strip()
         else:
@@ -854,6 +862,33 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
         ref = ref_bare.group(1).strip()
         after = clean[ref_bare.end():].lstrip()
         if not after.startswith("(") and ref not in (
+            "let", "in", "each", "true", "false", "null",
+            "Table", "List", "Record", "Json", "Xml", "Csv",
+            "Excel", "File", "Text", "Date", "DateTime", "Binary",
+            "Number", "Duration", "Time", "Splitter", "Combiner",
+            "Lines", "Type", "Function", "Uri", "Compression",
+            "Value", "Expression", "Metadata", "Error",
+        ):
+            expr.source_type = "derived_table"
+            expr.derived_from = ref
+            return expr
+
+    alias_quoted = re.search(
+        r'\blet\s+(?:[A-Za-z_][A-Za-z0-9_]*|#"[^"]+")\s*=\s*#"([^"]+)"',
+        clean,
+    )
+    if alias_quoted:
+        expr.source_type = "derived"
+        expr.derived_from = alias_quoted.group(1)
+        return expr
+
+    alias_bare = re.search(
+        r'\blet\s+(?:[A-Za-z_][A-Za-z0-9_]*|#"[^"]+")\s*=\s*([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?:,|in\b)|$)',
+        clean,
+    )
+    if alias_bare:
+        ref = alias_bare.group(1).strip()
+        if ref not in (
             "let", "in", "each", "true", "false", "null",
             "Table", "List", "Record", "Json", "Xml", "Csv",
             "Excel", "File", "Text", "Date", "DateTime", "Binary",

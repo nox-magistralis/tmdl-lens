@@ -7,6 +7,7 @@ from tmdl_lens.tmdl_parser import (
     _extract_blocks,
     _extract_connector_details,
     _parse_calculation_items,
+    _parse_column,
     _parse_tree,
     _strip_m_comments,
 )
@@ -258,3 +259,54 @@ def test_calc_items_inline_with_ordinal_and_format_children():
     assert it.ordinal == 3
     assert "DATESMTD" in it.dax_expression
     assert it.format_string_expression == "SELECTEDMEASUREFORMATSTRING()"
+
+
+def test_parse_column_calc_bare_name_inline():
+    col = _parse_column('column QuarterName = "Q" & FORMAT([Quarter], "0")')
+    assert col is not None
+    assert col.name == "QuarterName"
+    assert col.is_calculated is True
+    assert col.data_type == "calculated"
+    assert 'FORMAT([Quarter], "0")' in col.dax_expression
+
+
+def test_parse_column_calc_bare_name_multiline():
+    block = (
+        "column NetRevenue =\n"
+        "\t\tSUM(\n"
+        "\t\t\t[amount]\n"
+        "\t\t)\n"
+        "\tisHidden\n"
+        "\tdataType: double"
+    )
+    col = _parse_column(block)
+    assert col is not None
+    assert col.name == "NetRevenue"
+    assert col.is_calculated is True
+    assert "SUM(" in col.dax_expression
+    assert "[amount]" in col.dax_expression
+    assert col.is_hidden is True
+
+
+def test_classify_first_binding_alias_quoted():
+    expr = _classify_m_content(
+        'let\n'
+        '    wb = #"cmo-mapping-source"\n'
+        'in\n'
+        '    wb',
+        "cmo_capacity",
+    )
+    assert expr.source_type == "derived"
+    assert expr.derived_from == "cmo-mapping-source"
+
+
+def test_classify_first_binding_alias_bare():
+    expr = _classify_m_content(
+        "let\n"
+        "    t = doseLog\n"
+        "in\n"
+        "    t",
+        "x",
+    )
+    assert expr.source_type == "derived_table"
+    assert expr.derived_from == "doseLog"
