@@ -5,7 +5,7 @@
 - `_extract_blocks()` is a block-boundary locator only (finds where a `column`/`measure`/`calculationItem` block starts and ends by indentation). It does not parse the block's internal structure.
 - `_classify_m_content()` classifies a partition in a fixed order: scalar helper, then the specific shapes (transform functions, hardcoded and embedded data, derived references), and the generic connector match last. Any `Namespace.Function(` call outside the M standard library and the known transform functions is treated as a connector.
 - M derivation in `_classify_m_content()` also recognizes a first `let` binding
-  that assigns a named query to any variable (`wb = #"cmo-mapping-source"`),
+  that assigns a named query to any variable (`wb = #"shared-mapping-source"`),
   quoted references classifying as `derived` and bare as `derived_table`.
 - Adding a new connector with custom detail extraction: add a branch to `_extract_connector_details()` in `tmdl_parser.py`, add an entry to `CONNECTOR_TYPE_LABEL` in `source_resolver.py`. That dict is the only source of connector labels - `readme_generator.py` imports it, so there is no second copy to keep in sync. Generic connectors with no custom branch still get classified and labeled - the custom branch is only needed to extract extra detail fields (server, database, url, etc.).
 - `_SOURCE_TYPE_LABEL` in `readme_generator.py` is a separate axis: it names non-connector source types (`hardcoded`, `embedded`, `table_combine`, `dynamic`, `unresolved`, `function_def`, `scalar_helper`). Extend it only when a new `source_type` value is introduced.
