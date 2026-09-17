@@ -72,6 +72,7 @@ class App(ctk.CTk):
         self._last_run: str = "never"
         self._run_thread: threading.Thread | None = None
         self._watcher: TmdlWatcher | None = None
+        self._watcher_config: dict = {}
         self._watcher_enabled: bool = (
             WATCHER_AVAILABLE
             and self.config_data.get("features", {}).get("watcher", True)
@@ -733,6 +734,7 @@ class App(ctk.CTk):
             "team":             self._team_var.get().strip(),
             "refresh_schedule": self._refresh_var.get().strip(),
             "file_hashes":      self.config_data.get("file_hashes", {}),
+            "features":         self.config_data.get("features", {}),
         }
 
     # ── Browse handlers ───────────────────────────────────────────────────────
@@ -807,6 +809,7 @@ class App(ctk.CTk):
             self.log("watcher not started - no reports folder selected", "msg")
             return
         self._stop_watcher()
+        self._watcher_config = self._collect_config()
         debounce_raw = self._debounce_var.get().replace(" sec", "")
         try:
             debounce = int(debounce_raw)
@@ -861,7 +864,7 @@ class App(ctk.CTk):
         """Called from watchdog thread when a debounced change fires."""
         pbip_name = os.path.splitext(os.path.basename(pbip_path))[0]
         self.log(f"change detected - {pbip_name}", "warn")
-        config = self._collect_config()
+        config = self._watcher_config
 
         pipeline_config = PipelineConfig(
             reports_folder=config["reports_folder"],
@@ -910,7 +913,14 @@ class App(ctk.CTk):
             logger=lambda msg, level: self.log(msg, level),
         )
 
-        result = pipeline.run()
+        try:
+            result = pipeline.run()
+        except Exception as e:
+            self.log(f"pipeline error: {e}", "err")
+            self.after(0, lambda: self._run_btn.configure(
+                state="normal", text="▶  Run Now"
+            ))
+            return
         self._on_pipeline_done(result)
 
     def _on_pipeline_done(self, result: PipelineResult):

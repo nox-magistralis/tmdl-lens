@@ -151,57 +151,57 @@ def test_list_unresolved():
     assert names == ["a"]
 
 def test_resolve_expression_referencing_inline_table():
-    dose_log = Table(
-        name="dose-log",
+    fact_load = Table(
+        name="fact-load",
         table_type="fact",
         partition_type="m",
         inline_source=_classify_m_content(
             'let\n'
-            '    Source = SharePoint.Files("https://contoso.sharepoint.com/sites/dose")\n'
+            '    Source = SharePoint.Files("https://contoso.sharepoint.com/sites/examples")\n'
             'in\n'
             '    Source',
-            "dose-log",
+            "fact-load",
         ),
     )
-    per_dose = _classify_m_content(
+    derived = _classify_m_content(
         'let\n'
-        '    Source = #"dose-log"\n'
+        '    Source = #"fact-load"\n'
         'in\n'
         '    Source',
-        "dose-log-per-dose-source",
+        "fact-load-derived-source",
     )
-    resolved = resolve_sources([per_dose], [], tables=[dose_log])
-    rs = resolved["dose-log-per-dose-source"]
+    resolved = resolve_sources([derived], [], tables=[fact_load])
+    rs = resolved["fact-load-derived-source"]
     assert rs.unresolved is False
-    assert rs.derived_from == "dose-log"
-    assert rs.chain[0] == "dose-log"
-    assert rs.sharepoint_url == "https://contoso.sharepoint.com/sites/dose"
+    assert rs.derived_from == "fact-load"
+    assert rs.chain[0] == "fact-load"
+    assert rs.sharepoint_url == "https://contoso.sharepoint.com/sites/examples"
 
 
 def test_resolve_inline_alias_from_parser():
     shared = SourceExpression(
-        name="cmo-mapping-source",
+        name="shared-mapping-source",
         source_type="connector",
         connector_namespace="SharePoint",
         connector_function="Files",
-        sharepoint_url="https://contoso.sharepoint.com/sites/dose",
+        sharepoint_url="https://contoso.sharepoint.com/sites/examples",
     )
-    cmo = Table(
-        name="cmo_capacity",
+    capacity_table = Table(
+        name="capacity-table",
         table_type="fact",
         partition_type="m",
         inline_source=_classify_m_content(
             'let\n'
-            '    wb = #"cmo-mapping-source"\n'
+            '    wb = #"shared-mapping-source"\n'
             'in\n'
             '    wb',
-            "cmo_capacity",
+            "capacity-table",
         ),
     )
-    resolved = resolve_sources([shared], [], tables=[cmo])
-    rs = resolved["cmo_capacity"]
+    resolved = resolve_sources([shared], [], tables=[capacity_table])
+    rs = resolved["capacity-table"]
     assert rs.unresolved is False
-    assert rs.derived_from == "cmo-mapping-source"
+    assert rs.derived_from == "shared-mapping-source"
     assert rs.connector_namespace == "SharePoint"
 
 
@@ -217,27 +217,27 @@ def test_resolve_inline_reference_to_source_ref_table():
         table_or_view="orders",
     )
     alias_tbl = Table(
-        name="dose-log",
+        name="fact-load",
         table_type="fact",
         partition_type="m",
         source_ref="source-sql-direct",
     )
     dep_tbl = Table(
-        name="dose-log-per-dose",
+        name="fact-load-derived",
         table_type="fact",
         partition_type="m",
         inline_source=_classify_m_content(
             'let\n'
-            '    Source = #"dose-log"\n'
+            '    Source = #"fact-load"\n'
             'in\n'
             '    Source',
-            "dose-log-per-dose",
+            "fact-load-derived",
         ),
     )
     resolved = resolve_sources([direct], [], tables=[alias_tbl, dep_tbl])
-    rs = resolved["dose-log-per-dose"]
+    rs = resolved["fact-load-derived"]
     assert rs.unresolved is False
-    assert rs.derived_from == "dose-log"
+    assert rs.derived_from == "fact-load"
     assert rs.server == "srv"
 
 

@@ -8,6 +8,7 @@ from tmdl_lens.tmdl_parser import (
     _extract_connector_details,
     _parse_calculation_items,
     _parse_column,
+    _parse_measure,
     _parse_tree,
     _strip_m_comments,
 )
@@ -288,25 +289,80 @@ def test_parse_column_calc_bare_name_multiline():
     assert col.is_hidden is True
 
 
+def test_parse_measure_bare_name_inline():
+    m = _parse_measure(
+        'measure Produced = CALCULATE(SUM(batch[Quantity]), batch[Prod Ship] = "Produced")'
+    )
+    assert m is not None
+    assert m.name == "Produced"
+    assert "CALCULATE(" in m.dax_expression
+
+
+def test_parse_measure_bare_numeric_name():
+    m = _parse_measure("measure 107 = CALCULATE(SUM(batch[Quantity]))")
+    assert m is not None
+    assert m.name == "107"
+    assert "CALCULATE(" in m.dax_expression
+
+
+def test_parse_measure_bare_name_multiline_with_properties():
+    block = (
+        "measure Revenues =\n"
+        "\tSUM('fact-sales'[Sales Amount]) + SUM('fact-sales'[Management Fee])\n"
+        "\tformatString: #,0\n"
+        "\tlineageTag: abc-123"
+    )
+    m = _parse_measure(block)
+    assert m is not None
+    assert m.name == "Revenues"
+    assert "SUM('fact-sales'[Sales Amount])" in m.dax_expression
+    assert m.format_string == "#,0"
+    assert m.lineage_tag == "abc-123"
+
+
+def test_parse_measure_bare_name_fenced_header():
+    block = (
+        "measure Fee = ```\n"
+        "\tSUM('fact-sales'[Management Fee])\n"
+        "\t```"
+    )
+    m = _parse_measure(block)
+    assert m is not None
+    assert m.name == "Fee"
+    assert "Management Fee" in m.dax_expression
+
+
+def test_parse_measure_quoted_name_unchanged():
+    block = (
+        "measure 'Total Sales Amount' = SUM('fact-sales'[amount])\n"
+        "\tformatString: #,0"
+    )
+    m = _parse_measure(block)
+    assert m is not None
+    assert m.name == "Total Sales Amount"
+    assert "SUM('fact-sales'[amount])" in m.dax_expression
+    assert m.format_string == "#,0"
+
+
 def test_classify_first_binding_alias_quoted():
     expr = _classify_m_content(
         'let\n'
-        '    wb = #"cmo-mapping-source"\n'
+        '    wb = #"shared-mapping-source"\n'
         'in\n'
         '    wb',
-        "cmo_capacity",
+        "capacity-table",
     )
     assert expr.source_type == "derived"
-    assert expr.derived_from == "cmo-mapping-source"
+    assert expr.derived_from == "shared-mapping-source"
 
 
 def test_classify_first_binding_alias_bare():
     expr = _classify_m_content(
         "let\n"
-        "    t = doseLog\n"
+        "    t = loadTable\n"
         "in\n"
         "    t",
         "x",
     )
     assert expr.source_type == "derived_table"
-    assert expr.derived_from == "doseLog"
+    assert expr.derived_from == "loadTable"
