@@ -296,8 +296,10 @@ def _table_detail_block(
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:
                 lines.append(f"**Database:** `{rs.database}`  ")
-        # Oracle/MySql/PostgreSQL/DB2/SapHana/Snowflake .Database
-        if rs.source_type == "connector" and rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana", "Snowflake") and rs.connector_function in ("Database", "Databases"):
+        if rs.source_type == "connector" and (
+            (rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana") and rs.connector_function == "Database")
+            or (rs.connector_namespace == "Snowflake" and rs.connector_function == "Databases")
+        ):
             if rs.server:
                 lines.append(f"**Server:** `{rs.server}`  ")
             if rs.database:

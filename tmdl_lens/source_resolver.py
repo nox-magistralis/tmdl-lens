@@ -119,7 +119,6 @@ CONNECTOR_TYPE_LABEL = {
     ("PostgreSQL", "Database"):           "PostgreSQL",
     ("DB2", "Database"):                  "IBM Db2",
     ("SapHana", "Database"):              "SAP HANA",
-    ("Snowflake", "Database"):            "Snowflake",
     ("Snowflake", "Databases"):           "Snowflake",
     ("Teradata", "Database"):             "Teradata",
     ("Databricks", "Catalogs"):           "Databricks",
