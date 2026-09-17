@@ -531,13 +531,19 @@ def _parse_column(block: str, description: str = "") -> Optional[Column]:
 def _parse_measure(block: str, leading_description: str = "") -> Optional[Measure]:
     lines = block.split("\n")
     header = lines[0].strip()
-    m = re.match(r"measure\s+'(.+?)'\s*=|measure\s+\"(.+?)\"\s*=", header)
+    m = re.match(
+        r"measure\s+'(.+?)'\s*=|measure\s+\"(.+?)\"\s*=|measure\s+([^\s'\"=]+?)\s*=",
+        header,
+    )
     if not m:
         return None
-    name = (m.group(1) or m.group(2)).strip()
+    name = (m.group(1) or m.group(2) or m.group(3)).strip()
 
     # Inline DAX from header
-    inline = re.match(r"measure\s+(?:'[^']+'|\"[^\"]+\")\s*=\s*(.+)$", header)
+    inline = re.match(
+        r"measure\s+(?:'[^']+'|\"[^\"]+\"|[^\s'\"=]+?)\s*=\s*(.+)$",
+        header,
+    )
     inline_dax = inline.group(1).strip() if inline else ""
 
     # Parse children via tree parser
