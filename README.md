@@ -171,6 +171,7 @@ tmdl-lens/
     watcher.py              file watcher (watchdog)
     config.py               app settings + documentation metadata (config.json)
     version.py              single source of the app version
+  docs/                     TMDL syntax and parser internals reference
   sample/                   sample .pbip project for testing
   tests/                    pytest suite
 ```
