@@ -12,9 +12,6 @@ CLAUDE.md
 /debug*.py
 /test_*.py
 
-# Scratch output from verification runs - never commit these
-$Temp/
-
 # PyInstaller build output
 build/
 dist/
