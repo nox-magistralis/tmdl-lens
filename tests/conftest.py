@@ -29,6 +29,10 @@ SAMPLE_MODEL = os.path.join(
     REPO_ROOT, "sample", "tmdl-lens-test-report.SemanticModel"
 )
 
+collect_ignore = []
+if not os.path.exists(os.path.join(REPO_ROOT, "tools", "check_rules.py")):
+    collect_ignore.append("test_rules_hygiene.py")
+
 
 @pytest.fixture(scope="session")
 def sample_model():
