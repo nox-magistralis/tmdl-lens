@@ -1,0 +1,12 @@
+{
+  "bootstrap-sha": "9d84c9612f68d76fe8c6cf07a4252c4872a3af57",
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "tmdl-lens",
+      "include-component-in-tag": false,
+      "bump-minor-pre-major": true,
+      "extra-files": ["tmdl_lens/version.py"]
+    }
+  }
+}
