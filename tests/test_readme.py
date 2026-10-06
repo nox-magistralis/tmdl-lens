@@ -65,3 +65,12 @@ def test_html_generation(sample_model, sample_resolved, gen_config):
     assert "tmdl-lens Test Report" in html
     assert "<h2>1. Data Sources</h2>" in html
     assert "<h2>7. Model Statistics</h2>" in html
+
+
+def test_generation_is_deterministic(sample_model, sample_resolved, gen_config):
+    first_md = generate_readme(sample_model, sample_resolved, gen_config)
+    second_md = generate_readme(sample_model, sample_resolved, gen_config)
+    first_html = generate_html(sample_model, sample_resolved, gen_config)
+    second_html = generate_html(sample_model, sample_resolved, gen_config)
+    assert first_md.encode("utf-8") == second_md.encode("utf-8")
+    assert first_html.encode("utf-8") == second_html.encode("utf-8")
