@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -80,7 +80,7 @@ jobs:
 
   pypi:
     needs: dist
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pypi
     permissions:
       id-token: write
@@ -95,7 +95,7 @@ jobs:
 
   attach-exe:
     needs: [resolve, exe]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
