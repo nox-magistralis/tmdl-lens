@@ -2,34 +2,38 @@ name: release
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: existing release tag to publish, for example v0.5.2
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  release-please:
+  resolve:
     runs-on: ubuntu-latest
     outputs:
-      created: ${{ steps.rp.outputs.release_created }}
-      tag: ${{ steps.rp.outputs.tag_name }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - id: app
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-      - id: rp
-        uses: googleapis/release-please-action@v5
-        with:
-          token: ${{ steps.app.outputs.token }}
+      - id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${DISPATCH_TAG:-$GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid release tag: ${tag}" >&2; exit 1; }
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
   test:
-    needs: release-please
-    if: needs.release-please.outputs.created == 'true'
+    needs: resolve
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -38,10 +42,12 @@ jobs:
       - run: python -m pytest
 
   dist:
-    needs: test
+    needs: [resolve, test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -51,12 +57,15 @@ jobs:
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
 
   exe:
-    needs: test
+    needs: [resolve, test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -67,9 +76,10 @@ jobs:
         with:
           name: exe
           path: dist/tmdl-lens.v*.zip
+          if-no-files-found: error
 
   pypi:
-    needs: [release-please, dist, exe]
+    needs: dist
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -84,7 +94,7 @@ jobs:
           skip-existing: true
 
   attach-exe:
-    needs: [release-please, pypi]
+    needs: [resolve, exe]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -93,6 +103,6 @@ jobs:
         with:
           name: exe
           path: exe/
-      - run: gh release upload "${{ needs.release-please.outputs.tag }}" exe/* --repo "$GITHUB_REPOSITORY" --clobber
+      - run: gh release upload "${{ needs.resolve.outputs.tag }}" exe/* --repo "$GITHUB_REPOSITORY" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
