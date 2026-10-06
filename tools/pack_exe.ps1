@@ -17,7 +17,25 @@ try {
     pyinstaller tmdl-lens.spec
     if ($LASTEXITCODE -ne 0) { throw "pyinstaller failed with exit code " + $LASTEXITCODE }
     if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-    Compress-Archive -Path (Join-Path $bundle "*") -DestinationPath $zipPath -Force
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try {
+            [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                $bundle,
+                $zipPath,
+                [System.IO.Compression.CompressionLevel]::Optimal,
+                $false
+            )
+            break
+        } catch {
+            if ($attempt -ge 3) { throw }
+            Write-Host ("zip attempt " + $attempt + " failed: " + $_.Exception.Message)
+            Start-Sleep -Seconds 3
+            if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+        }
+    }
 } finally {
     Pop-Location
 }
