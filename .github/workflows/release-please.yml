@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - id: app
         uses: actions/create-github-app-token@v3
