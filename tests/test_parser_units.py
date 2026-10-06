@@ -9,6 +9,7 @@ from tmdl_lens.tmdl_parser import (
     _parse_calculation_items,
     _parse_column,
     _parse_measure,
+    _parse_relationships,
     _parse_tree,
     _strip_m_comments,
 )
@@ -366,3 +367,24 @@ def test_classify_first_binding_alias_bare():
     )
     assert expr.source_type == "derived_table"
     assert expr.derived_from == "loadTable"
+
+
+def test_relationship_defaults_minimal(tmp_path):
+    content = (
+        "relationship r1\n"
+        "\tfromColumn: fact-sales.order_id\n"
+        "\ttoColumn: 'dim-product'.product_id\n"
+    )
+    path = tmp_path / "relationships.tmdl"
+    path.write_text(content, encoding="utf-8")
+    rels = _parse_relationships(str(path))
+    assert len(rels) == 1
+    rel = rels[0]
+    assert rel.from_table == "fact-sales"
+    assert rel.from_column == "order_id"
+    assert rel.to_table == "dim-product"
+    assert rel.to_column == "product_id"
+    assert rel.cardinality == "Many-to-One"
+    assert rel.cross_filtering_behavior == "oneDirection"
+    assert rel.security_filtering_behavior == "oneDirection"
+    assert rel.is_active is True

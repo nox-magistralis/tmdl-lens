@@ -275,13 +275,13 @@ COUNTROWS('helper-order-lookup')
 | From Table | From Column | To Table | To Column | Cardinality | Cross Filter | Security Filter |
 |---|---|---|---|---|---|---|
 | `fact-sales` | `order_date` | `dim-date` | `Date` | Many-to-One | bothDirections | oneDirection |
-| `fact-sales` | `customer_id` | `dim-product` | `product_id` | Many-to-One | automatic | oneDirection |
+| `fact-sales` | `customer_id` | `dim-product` | `product_id` | Many-to-One | oneDirection | oneDirection |
 
 **Inactive Relationships**
 
 | From Table | From Column | To Table | To Column | Cross Filter | Security Filter |
 |---|---|---|---|---|---|
-| `fact-sales` | `ship_date` | `dim-date` | `Date` | automatic | bothDirections |
+| `fact-sales` | `ship_date` | `dim-date` | `Date` | oneDirection | bothDirections |
 
 ---
 

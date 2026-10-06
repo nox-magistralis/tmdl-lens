@@ -69,6 +69,24 @@ def test_relationships(sample_model):
     assert ("fact-sales", "customer_id", "dim-product", "product_id") in pairs
     assert ("fact-sales", "ship_date", "dim-date", "Date") in pairs
     assert sum(1 for r in sample_model.relationships if not r.is_active) == 1
+    by_pair = {
+        (r.from_table, r.from_column): r for r in sample_model.relationships
+    }
+    date_rel = by_pair[("fact-sales", "order_date")]
+    assert date_rel.cardinality == "Many-to-One"
+    assert date_rel.cross_filtering_behavior == "bothDirections"
+    assert date_rel.security_filtering_behavior == "oneDirection"
+    assert date_rel.is_active is True
+    product_rel = by_pair[("fact-sales", "customer_id")]
+    assert product_rel.cardinality == "Many-to-One"
+    assert product_rel.cross_filtering_behavior == "oneDirection"
+    assert product_rel.security_filtering_behavior == "oneDirection"
+    assert product_rel.is_active is True
+    ship_rel = by_pair[("fact-sales", "ship_date")]
+    assert ship_rel.cardinality == "Many-to-One"
+    assert ship_rel.cross_filtering_behavior == "oneDirection"
+    assert ship_rel.security_filtering_behavior == "bothDirections"
+    assert ship_rel.is_active is False
 
 
 def test_measures(sample_model):

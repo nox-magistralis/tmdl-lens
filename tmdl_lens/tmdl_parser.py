@@ -52,7 +52,7 @@ class Relationship:
     to_column: str
     cardinality: str = ""
     is_active: bool = True
-    cross_filtering_behavior: str = "automatic"
+    cross_filtering_behavior: str = "oneDirection"
     security_filtering_behavior: str = "oneDirection"
 
 
@@ -1274,7 +1274,7 @@ def _parse_relationships(filepath: str) -> list:
         from_card_m = _find_child(root, "fromCardinality")
         to_card_m   = _find_child(root, "toCardinality")
         from_card = from_card_m.value.strip() if from_card_m else "many"
-        to_card   = to_card_m.value.strip()   if to_card_m   else "many"
+        to_card   = to_card_m.value.strip()   if to_card_m   else "one"
 
         if from_card == "one" and to_card == "many":
             cardinality = "One-to-Many"
@@ -1293,7 +1293,7 @@ def _parse_relationships(filepath: str) -> list:
         # Add tree lookups for crossFilteringBehavior and securityFilteringBehavior
         cfb_node = _find_child(root, "crossFilteringBehavior")
         sfb_node = _find_child(root, "securityFilteringBehavior")
-        cross_filtering = cfb_node.value.strip().strip("'\"") if cfb_node else "automatic"
+        cross_filtering = cfb_node.value.strip().strip("'\"") if cfb_node else "oneDirection"
         security_filtering = sfb_node.value.strip().strip("'\"") if sfb_node else "oneDirection"
 
         from_parts = from_node.value.strip().rsplit(".", 1)
