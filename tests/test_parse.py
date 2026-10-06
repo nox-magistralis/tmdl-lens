@@ -59,6 +59,14 @@ def test_source_expressions(sample_model):
     assert len(sample_model.source_expressions) == 21
 
 
+def test_sample_function_expression(sample_model):
+    fn = next(
+        e for e in sample_model.source_expressions
+        if e.name == "fnGetDataflowEntity"
+    )
+    assert fn.source_type == "function_def"
+
+
 def test_relationships(sample_model):
     assert len(sample_model.relationships) == 3
     pairs = {

@@ -1417,6 +1417,25 @@ def _parse_model_database(definition_path: str) -> tuple[str, str, str]:
 # expressions parser, so we use the same content-scan approach here.
 # ---------------------------------------------------------------------------
 
+_FUNC_SIGNATURE_RE = re.compile(
+    r"\([^)]*\)\s*(?:as\s+(?:nullable\s+)?[A-Za-z_.]+\s*)?=>"
+)
+
+
+def _is_function_expression(block: str) -> bool:
+    rt_m = re.search(r"PBI_ResultType\s*=\s*(\S+)", block)
+    if rt_m:
+        return rt_m.group(1).strip() == "Function"
+    header = re.match(
+        r"(?:expression\s+)?(?:'[^']+'|\"[^\"]+\"|[^\s=]+)\s*=", block
+    )
+    body = block[header.end():] if header else block
+    body = body.lstrip()
+    if body.startswith("```"):
+        body = body[3:].lstrip()
+    return _FUNC_SIGNATURE_RE.match(body) is not None
+
+
 def _classify_expression(block: str, name: str) -> SourceExpression:
     expr = SourceExpression(name=name, raw_m=block)
 
@@ -1433,7 +1452,7 @@ def _classify_expression(block: str, name: str) -> SourceExpression:
         expr.param_type = t.group(1) if t else "Text"
         return expr
 
-    if re.search(r"^\s*\([^)]*\)\s*=>", block, re.MULTILINE):
+    if _is_function_expression(block):
         expr.source_type = "function_def"
         return expr
 

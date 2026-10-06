@@ -2,6 +2,7 @@
 
 from tmdl_lens.tmdl_parser import (
     SourceExpression,
+    _classify_expression,
     _classify_m_content,
     _dedent,
     _extract_blocks,
@@ -388,3 +389,96 @@ def test_relationship_defaults_minimal(tmp_path):
     assert rel.cross_filtering_behavior == "oneDirection"
     assert rel.security_filtering_behavior == "oneDirection"
     assert rel.is_active is True
+
+
+def test_classify_nested_lambda_not_function():
+    block = (
+        "source-nested-lambda =\n"
+        "\tlet\n"
+        "\t    Accumulate = List.Accumulate({1, 2, 3}, 0, (state, current) => state + current),\n"
+        "\t    Source = #\"source-sql-direct\"\n"
+        "\tin\n"
+        "\t    Source\n"
+        "\tannotation PBI_ResultType = Table"
+    )
+    expr = _classify_expression(block, "source-nested-lambda")
+    assert expr.source_type == "derived"
+    assert expr.derived_from == "source-sql-direct"
+
+
+def test_classify_typed_function_annotation():
+    block = (
+        "fnConvert =\n"
+        "\t(x as text) as number =>\n"
+        "\tNumber.From(x)\n"
+        "\tannotation PBI_ResultType = Function"
+    )
+    expr = _classify_expression(block, "fnConvert")
+    assert expr.source_type == "function_def"
+
+
+def test_classify_typed_function_no_annotation():
+    block = (
+        "fnToTable =\n"
+        "\t(x as text) as table =>\n"
+        "\tlet\n"
+        "\t    Source = #table({\"x\"}, {{x}})\n"
+        "\tin\n"
+        "\t    Source"
+    )
+    expr = _classify_expression(block, "fnToTable")
+    assert expr.source_type == "function_def"
+
+
+def test_classify_function_no_return_type_no_annotation():
+    block = (
+        "fnSimple =\n"
+        "\t(x as text) =>\n"
+        "\tText.Lower(x)"
+    )
+    expr = _classify_expression(block, "fnSimple")
+    assert expr.source_type == "function_def"
+
+
+def test_classify_fenced_function():
+    block = (
+        "fnFenced = ```\n"
+        "\t(a as number) as number => a + 1\n"
+        "\t```"
+    )
+    expr = _classify_expression(block, "fnFenced")
+    assert expr.source_type == "function_def"
+
+
+def test_classify_exception_falls_through():
+    block = (
+        "source-exception =\n"
+        "\tlet\n"
+        "\t    Source = Sql.Database(\"srv\", \"db\")\n"
+        "\tin\n"
+        "\t    Source\n"
+        "\tannotation PBI_ResultType = Exception"
+    )
+    expr = _classify_expression(block, "source-exception")
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "Sql"
+    assert expr.connector_function == "Database"
+
+
+def test_classify_date_annotation_scalar():
+    block = (
+        "scalar-date =\n"
+        "\tlet\n"
+        "\t    d = Date.From(DateTime.LocalNow())\n"
+        "\tin\n"
+        "\t    d\n"
+        "\tannotation PBI_ResultType = Date"
+    )
+    expr = _classify_expression(block, "scalar-date")
+    assert expr.source_type == "scalar_helper"
+
+
+def test_classify_quoted_name_with_equals():
+    block = "'Weird=Name' = (x as text) => Text.Lower(x)"
+    expr = _classify_expression(block, "Weird=Name")
+    assert expr.source_type == "function_def"
