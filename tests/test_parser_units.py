@@ -9,8 +9,11 @@ from tmdl_lens.tmdl_parser import (
     _extract_connector_details,
     _parse_calculation_items,
     _parse_column,
+    _parse_expressions,
     _parse_measure,
     _parse_relationships,
+    _parse_roles,
+    _parse_table_file,
     _parse_tree,
     _strip_m_comments,
 )
@@ -482,3 +485,125 @@ def test_classify_quoted_name_with_equals():
     block = "'Weird=Name' = (x as text) => Text.Lower(x)"
     expr = _classify_expression(block, "Weird=Name")
     assert expr.source_type == "function_def"
+
+
+def test_relationship_quoted_dotted_column(tmp_path):
+    content = (
+        "relationship r1\n"
+        "\tfromColumn: fact-sales.order_id\n"
+        "\ttoColumn: dim-product.'product.name.full'\n"
+    )
+    path = tmp_path / "relationships.tmdl"
+    path.write_text(content, encoding="utf-8")
+    rels = _parse_relationships(str(path))
+    assert len(rels) == 1
+    rel = rels[0]
+    assert rel.from_table == "fact-sales"
+    assert rel.from_column == "order_id"
+    assert rel.to_table == "dim-product"
+    assert rel.to_column == "product.name.full"
+
+
+def test_relationship_both_sides_quoted(tmp_path):
+    content = (
+        "relationship r1\n"
+        "\tfromColumn: 'fact table'.'order id'\n"
+        "\ttoColumn: 'dim product'.'product id'\n"
+    )
+    path = tmp_path / "relationships.tmdl"
+    path.write_text(content, encoding="utf-8")
+    rels = _parse_relationships(str(path))
+    assert len(rels) == 1
+    rel = rels[0]
+    assert rel.from_table == "fact table"
+    assert rel.from_column == "order id"
+    assert rel.to_table == "dim product"
+    assert rel.to_column == "product id"
+
+
+def test_parse_column_quoted_escaped_name_plain():
+    block = (
+        "column 'Rep''s Col'\n"
+        "\tdataType: string"
+    )
+    col = _parse_column(block)
+    assert col is not None
+    assert col.name == "Rep's Col"
+    assert col.is_calculated is False
+
+
+def test_parse_column_quoted_escaped_name_calc():
+    block = "column 'Rep''s Calc' = SUMX('fact-sales'[amount], 1)"
+    col = _parse_column(block)
+    assert col is not None
+    assert col.name == "Rep's Calc"
+    assert col.is_calculated is True
+    assert "SUMX('fact-sales'[amount], 1)" in col.dax_expression
+
+
+def test_parse_measure_quoted_escaped_name():
+    block = "measure 'Rep''s Total' = SUM('fact-sales'[amount])"
+    m = _parse_measure(block)
+    assert m is not None
+    assert m.name == "Rep's Total"
+    assert "SUM('fact-sales'[amount])" in m.dax_expression
+
+
+def test_parse_measure_expressionless():
+    block = "measure Placeholder"
+    m = _parse_measure(block)
+    assert m is not None
+    assert m.name == "Placeholder"
+    assert m.dax_expression == ""
+
+
+def test_parse_calc_item_quoted_escaped_name():
+    content = (
+        "table 'Time Intelligence'\n"
+        "\tcalculationGroup\n"
+        "\t\tcalculationItem 'Rep''s Item' = ```\n"
+        "\t\t\tSELECTEDMEASURE()\n"
+        "\t\t\t```\n"
+    )
+    items = _parse_calculation_items(content)
+    assert len(items) == 1
+    assert items[0].name == "Rep's Item"
+    assert items[0].dax_expression == "SELECTEDMEASURE()"
+
+
+def test_parse_table_quoted_escaped_name(tmp_path):
+    content = (
+        "table 'Rep''s Table'\n"
+        "\tcolumn c\n"
+        "\t\tdataType: string\n"
+    )
+    path = tmp_path / "table.tmdl"
+    path.write_text(content, encoding="utf-8")
+    table = _parse_table_file(str(path))
+    assert table is not None
+    assert table.name == "Rep's Table"
+
+
+def test_parse_expression_quoted_escaped_name(tmp_path):
+    content = "expression 'Weird''Name' = let x = 1 in x\n"
+    path = tmp_path / "expressions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    source_expressions, _m_parameters = _parse_expressions(str(path))
+    assert len(source_expressions) == 1
+    assert source_expressions[0].name == "Weird'Name"
+
+
+def test_parse_role_quoted_escaped_name(tmp_path):
+    content = (
+        "role 'Rep''s Role'\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'Rep''s Data' = [region] = \"North\"\n"
+    )
+    path = tmp_path / "roles.tmdl"
+    path.write_text(content, encoding="utf-8")
+    roles = _parse_roles(str(path))
+    assert len(roles) == 1
+    assert roles[0].name == "Rep's Role"
+    assert len(roles[0].table_filters) == 1
+    assert roles[0].table_filters[0].table == "Rep's Data"

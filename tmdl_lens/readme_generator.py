@@ -1207,6 +1207,8 @@ def generate_html(
             body.append(_html_table(["Measure", "Format", "Description", "Hidden"], rows))
             if include_dax:
                 for m in display_measures:
+                    if not m.dax_expression.strip():
+                        continue
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
                     refs = _find_hidden_references(
@@ -1236,6 +1238,8 @@ def generate_html(
             body.append(_html_table(["Measure", "Table", "Format", "Description"], rows))
             if include_dax:
                 for _, m in folders[folder]:
+                    if not m.dax_expression.strip():
+                        continue
                     body.append(f'<h4>{_code(m.name)}</h4>')
                     body.append(_pre(m.dax_expression))
 

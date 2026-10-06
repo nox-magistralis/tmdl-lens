@@ -430,12 +430,13 @@ def _parse_column(block: str, description: str = "") -> Optional[Column]:
     # Detect calculated column: column 'Name' = <dax>, column "Name" = <dax>
     # or a bare simple name - column Name = <dax>
     calc = re.match(
-        r"column\s+'(.+?)'\s*=|column\s+\"(.+?)\"\s*=|column\s+([^\s'\"=]+?)\s*=",
+        r"column\s+'((?:[^']|'')+)'\s*=|column\s+\"([^\"]+)\"\s*=|column\s+([^\s'\"=]+?)\s*=",
         header,
     )
 
     if calc:
         name = (calc.group(1) or calc.group(2) or calc.group(3)).strip()
+        name = name.replace("''", "'")
         # Parse children via tree parser
         base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
         children, _ = _parse_tree(lines, 1, base_indent)
@@ -444,7 +445,7 @@ def _parse_column(block: str, description: str = "") -> Optional[Column]:
         # DAX: inline from header, or accumulated from children before known properties
         dax = ""
         inline_dax_match = re.match(
-            r"column\s+(?:'[^']+'|\"[^\"]+\"|[^\s'\"]+?)\s*=\s*(.+)$", header
+            r"column\s+(?:'(?:[^']|'')+'|\"[^\"]+\"|[^\s'\"]+?)\s*=\s*(.+)$", header
         )
 
         if inline_dax_match:
@@ -484,9 +485,13 @@ def _parse_column(block: str, description: str = "") -> Optional[Column]:
                       description=description)
 
     # Plain column: column 'Name' or column "Name" or column barename
-    plain = re.match(r"column\s+'(.+?)'$|column\s+\"(.+?)\"$|column\s+(\S+)$", header)
+    plain = re.match(
+        r"column\s+'((?:[^']|'')+)'\s*$|column\s+\"([^\"]+)\"\s*$|column\s+(\S+)\s*$",
+        header,
+    )
     if plain:
         name = (plain.group(1) or plain.group(2) or plain.group(3)).strip()
+        name = name.replace("''", "'")
         # Parse children via tree parser
         base_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
         children, _ = _parse_tree(lines, 1, base_indent)
@@ -532,16 +537,17 @@ def _parse_measure(block: str, leading_description: str = "") -> Optional[Measur
     lines = block.split("\n")
     header = lines[0].strip()
     m = re.match(
-        r"measure\s+'(.+?)'\s*=|measure\s+\"(.+?)\"\s*=|measure\s+([^\s'\"=]+?)\s*=",
+        r"measure\s+(?:'((?:[^']|'')+)'|\"([^\"]+)\"|([^\s'\"=]+))(?:\s*=|$)",
         header,
     )
     if not m:
         return None
     name = (m.group(1) or m.group(2) or m.group(3)).strip()
+    name = name.replace("''", "'")
 
     # Inline DAX from header
     inline = re.match(
-        r"measure\s+(?:'[^']+'|\"[^\"]+\"|[^\s'\"=]+?)\s*=\s*(.+)$",
+        r"measure\s+(?:'(?:[^']|'')+'|\"[^\"]+\"|[^\s'\"=]+?)\s*=\s*(.+)$",
         header,
     )
     inline_dax = inline.group(1).strip() if inline else ""
@@ -643,13 +649,14 @@ def _parse_calculation_items(content: str) -> list:
         header_indent = len(lines[0]) - len(lines[0].lstrip("\t "))
 
         name_m = (
-            re.match(r"calculationItem\s+'([^']+)'", header) or
+            re.match(r"calculationItem\s+'((?:[^']|'')+)'", header) or
             re.match(r'calculationItem\s+"([^"]+)"', header) or
             re.match(r"calculationItem\s+(\S+)", header)
         )
         if not name_m:
             continue
         name = name_m.group(1).strip()
+        name = name.replace("''", "'")
 
         # Inline expression on the header line: calculationItem NAME = <dax>
         rest = header[name_m.end():].strip()
@@ -1167,7 +1174,7 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
         name_match = re.match(r"^table\s+(.+)$", stripped)
         if not name_match:
             return None
-        name = name_match.group(1).strip().strip("'\"")
+        name = _unquote(name_match.group(1))
         header_line = stripped
         header_indent = len(raw_line) - len(raw_line.lstrip("\t "))
         header_index = i
@@ -1254,6 +1261,23 @@ def _parse_table_file(filepath: str) -> Optional[Table]:
 # Relationship parser
 # ---------------------------------------------------------------------------
 
+_REF_RE = re.compile(r"^\s*('(?:[^']|'')+'|[^.']+)\.('(?:[^']|'')+'|.+?)\s*$")
+
+
+def _unquote(name: str) -> str:
+    name = name.strip()
+    if len(name) >= 2 and name[0] == name[-1] == "'":
+        return name[1:-1].replace("''", "'")
+    if len(name) >= 2 and name[0] == name[-1] == '"':
+        return name[1:-1].replace('""', '"')
+    return name
+
+
+def _split_table_column(ref: str) -> tuple[str, str]:
+    m = _REF_RE.match(ref)
+    return (_unquote(m.group(1)), _unquote(m.group(2))) if m else ("", "")
+
+
 def _parse_relationships(filepath: str) -> list:
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
@@ -1296,14 +1320,14 @@ def _parse_relationships(filepath: str) -> list:
         cross_filtering = cfb_node.value.strip().strip("'\"") if cfb_node else "oneDirection"
         security_filtering = sfb_node.value.strip().strip("'\"") if sfb_node else "oneDirection"
 
-        from_parts = from_node.value.strip().rsplit(".", 1)
-        to_parts   = to_node.value.strip().rsplit(".", 1)
-        if len(from_parts) == 2 and len(to_parts) == 2:
+        from_table, from_column = _split_table_column(from_node.value.strip())
+        to_table, to_column = _split_table_column(to_node.value.strip())
+        if from_table and from_column and to_table and to_column:
             rels.append(Relationship(
-                from_table=from_parts[0].strip().strip("'\""),
-                from_column=from_parts[1].strip().strip("'\""),
-                to_table=to_parts[0].strip().strip("'\""),
-                to_column=to_parts[1].strip().strip("'\""),
+                from_table=from_table,
+                from_column=from_column,
+                to_table=to_table,
+                to_column=to_column,
                 cardinality=cardinality,
                 is_active=active,
                 cross_filtering_behavior=cross_filtering,
@@ -1328,13 +1352,14 @@ def _parse_roles(filepath: str) -> list:
             continue
 
         name_m = (
-            re.match(r"'([^']+)'", block) or
+            re.match(r"'((?:[^']|'')+)'", block) or
             re.match(r'"([^"]+)"', block) or
             re.match(r"(\S+)", block)
         )
         if not name_m:
             continue
         name = name_m.group(1).strip()
+        name = name.replace("''", "'")
         if name.startswith("//"):
             continue
 
@@ -1346,7 +1371,7 @@ def _parse_roles(filepath: str) -> list:
         for child in root.children:
             if child.key.startswith("tablePermission"):
                 # key = "tablePermission '<table>'" - extract table name from key
-                table_name = child.key[len("tablePermission"):].strip().strip("'\"")
+                table_name = _unquote(child.key[len("tablePermission"):])
                 filters.append(TableFilter(table=table_name, dax_filter=child.value))
 
         is_dynamic = False
@@ -1427,7 +1452,7 @@ def _is_function_expression(block: str) -> bool:
     if rt_m:
         return rt_m.group(1).strip() == "Function"
     header = re.match(
-        r"(?:expression\s+)?(?:'[^']+'|\"[^\"]+\"|[^\s=]+)\s*=", block
+        r"(?:expression\s+)?(?:'(?:[^']|'')+'|\"[^\"]+\"|[^\s=]+)\s*=", block
     )
     body = block[header.end():] if header else block
     body = body.lstrip()
@@ -1485,13 +1510,14 @@ def _parse_expressions(filepath: str) -> tuple[list, list]:
             continue
 
         name_m = (
-            re.match(r"'([^']+)'\s*=", block) or
+            re.match(r"'((?:[^']|'')+)'\s*=", block) or
             re.match(r'"([^"]+)"\s*=', block) or
             re.match(r"([^\s=]+)\s*=", block)
         )
         if not name_m:
             continue
         name = name_m.group(1).strip()
+        name = name.replace("''", "'")
         if name.startswith("//"):
             continue
 
