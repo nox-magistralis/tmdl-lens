@@ -1,5 +1,7 @@
 """Fragment-level tests for the pipeline helper functions."""
 
+import os
+
 from tmdl_lens.pipeline import (
     PipelineConfig,
     _build_gen_config,
@@ -26,25 +28,27 @@ def test_find_pbip_files_empty(tmp_path):
 
 
 def test_detect_multi_pbip_folders():
-    files = [r"C:\a\one.pbip", r"C:\a\two.pbip", r"C:\b\three.pbip"]
-    skipped, runnable = _detect_multi_pbip_folders(files)
-    assert skipped == {r"C:\a"}
-    assert runnable == [r"C:\b\three.pbip"]
+    one = os.path.join("a", "one.pbip")
+    two = os.path.join("a", "two.pbip")
+    three = os.path.join("b", "three.pbip")
+    skipped, runnable = _detect_multi_pbip_folders([one, two, three])
+    assert skipped == {os.path.dirname(one)}
+    assert runnable == [three]
 
 
 def test_detect_multi_pbip_folders_all_unique():
-    files = [r"C:\a\one.pbip", r"C:\b\two.pbip"]
+    files = [os.path.join("a", "one.pbip"), os.path.join("b", "two.pbip")]
     skipped, runnable = _detect_multi_pbip_folders(files)
     assert skipped == set()
     assert runnable == files
 
 
 def test_get_output_path_md_next_to_pbip():
-    assert _get_output_path(r"C:\rep", "Sales", "md", "") == r"C:\rep\README.md"
+    assert _get_output_path("rep", "Sales", "md", "") == os.path.join("rep", "README.md")
 
 
 def test_get_output_path_html_custom_folder():
-    assert _get_output_path(r"C:\rep", "Sales", "html", r"C:\docs") == r"C:\docs\Sales\Sales.html"
+    assert _get_output_path("rep", "Sales", "html", "docs") == os.path.join("docs", "Sales", "Sales.html")
 
 
 def test_build_gen_config():
