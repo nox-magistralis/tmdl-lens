@@ -1,0 +1,4 @@
+role 'Legacy Users'
+	modelPermission: read
+
+	tablePermission 'dim-product' = USERNAME() = [username]

@@ -289,12 +289,12 @@ COUNTROWS('helper-order-lookup')
 
 | Role | Table | Filter | Dynamic |
 |---|---|---|---|
-| `Regional Managers` | `fact-sales` | `[region] = "North"` | No |
-| `Employees` | `dim-product` | `USERPRINCIPALNAME() = [email]` | Yes (USERPRINCIPALNAME) |
-| `Legacy Users` | `dim-product` | `USERNAME() = [username]` | Yes (USERNAME) |
+| `Administrators` | - | - | No |
 | `Area Supervisors` | `fact-sales` | `[region] = "South"` | No |
 |  | `dim-product` | `[category] = "Hardware"` |  |
-| `Administrators` | - | - | No |
+| `Employees` | `dim-product` | `USERPRINCIPALNAME() = [email]` | Yes (USERPRINCIPALNAME) |
+| `Legacy Users` | `dim-product` | `USERNAME() = [username]` | Yes (USERNAME) |
+| `Regional Managers` | `fact-sales` | `[region] = "North"` | No |
 
 ---
 

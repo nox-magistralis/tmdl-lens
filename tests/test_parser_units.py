@@ -16,6 +16,7 @@ from tmdl_lens.tmdl_parser import (
     _parse_table_file,
     _parse_tree,
     _strip_m_comments,
+    parse_semantic_model,
 )
 
 
@@ -672,3 +673,95 @@ def test_classify_stdlib_only_stays_unresolved():
         "t",
     )
     assert expr.source_type != "connector"
+
+
+def test_parse_roles_multiline_filter(tmp_path):
+    content = (
+        "role 'Multi Line'\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'fact-sales' =\n"
+        "\t\t\t[region] = \"South\"\n"
+        "\t\t\t\t&& [unit_price] > 0\n"
+    )
+    path = tmp_path / "roles.tmdl"
+    path.write_text(content, encoding="utf-8")
+    roles = _parse_roles(str(path))
+    assert len(roles) == 1
+    assert roles[0].name == "Multi Line"
+    assert len(roles[0].table_filters) == 1
+    assert roles[0].table_filters[0].table == "fact-sales"
+    assert roles[0].table_filters[0].dax_filter == "[region] = \"South\"\n\t&& [unit_price] > 0"
+
+
+def test_parse_roles_fenced_filter(tmp_path):
+    content = (
+        "role Fenced\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'dim-product' = ```\n"
+        "\t\t[category] = \"Hardware\"\n"
+        "\t\t```\n"
+    )
+    path = tmp_path / "roles.tmdl"
+    path.write_text(content, encoding="utf-8")
+    roles = _parse_roles(str(path))
+    assert len(roles) == 1
+    assert roles[0].name == "Fenced"
+    assert roles[0].table_filters[0].dax_filter == "[category] = \"Hardware\""
+
+
+def test_parse_semantic_model_roles_folder(tmp_path):
+    definition = tmp_path / "definition"
+    roles_dir = definition / "roles"
+    roles_dir.mkdir(parents=True)
+    (roles_dir / "Static.tmdl").write_text(
+        "role Static\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'fact-sales' = [region] = \"North\"\n",
+        encoding="utf-8",
+    )
+    (roles_dir / "Multi Line.tmdl").write_text(
+        "role 'Multi Line'\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'fact-sales' =\n"
+        "\t\t\t[region] = \"South\"\n"
+        "\t\t\t\t&& [unit_price] > 0\n",
+        encoding="utf-8",
+    )
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert [r.name for r in model.security_roles] == ["Multi Line", "Static"]
+    multi = model.security_roles[0]
+    assert multi.table_filters[0].dax_filter == "[region] = \"South\"\n\t&& [unit_price] > 0"
+
+
+def test_parse_semantic_model_roles_folder_and_legacy(tmp_path):
+    definition = tmp_path / "definition"
+    roles_dir = definition / "roles"
+    roles_dir.mkdir(parents=True)
+    (roles_dir / "Folder Role.tmdl").write_text(
+        "role 'Folder Role'\n\tmodelPermission: read\n", encoding="utf-8"
+    )
+    (definition / "roles.tmdl").write_text(
+        "role Legacy\n\tmodelPermission: read\n", encoding="utf-8"
+    )
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert [r.name for r in model.security_roles] == ["Folder Role", "Legacy"]
+
+
+def test_parse_semantic_model_roles_legacy_only(tmp_path):
+    definition = tmp_path / "definition"
+    definition.mkdir(parents=True)
+    (definition / "roles.tmdl").write_text(
+        "role Legacy\n\tmodelPermission: read\n", encoding="utf-8"
+    )
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert [r.name for r in model.security_roles] == ["Legacy"]
+
+
+def test_parse_semantic_model_roles_none(tmp_path):
+    (tmp_path / "definition").mkdir()
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert model.security_roles == []

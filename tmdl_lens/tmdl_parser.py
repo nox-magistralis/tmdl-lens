@@ -1414,15 +1414,43 @@ def _parse_roles(filepath: str) -> list:
             continue
 
         lines = block.split("\n")
-        children, _ = _parse_tree(lines, 1, 0)
-        root = TmdlNode(key="", children=children)
 
         filters = []
-        for child in root.children:
-            if child.key.startswith("tablePermission"):
-                # key = "tablePermission '<table>'" - extract table name from key
-                table_name = _unquote(child.key[len("tablePermission"):])
-                filters.append(TableFilter(table=table_name, dax_filter=child.value))
+        i = 1
+        while i < len(lines):
+            stripped = lines[i].strip()
+            perm_m = re.match(
+                r"tablePermission\s+('(?:[^']|'')+'|\"[^\"]+\"|[^\s=]+)\s*(?:=(.*))?$",
+                stripped,
+            )
+            if not perm_m:
+                i += 1
+                continue
+            table_name = _unquote(perm_m.group(1))
+            value_part = (perm_m.group(2) or "").strip()
+            if value_part.startswith("```"):
+                dax, i = _read_fenced_value(lines, i + 1)
+                filters.append(TableFilter(table=table_name, dax_filter=dax))
+                continue
+            if value_part:
+                filters.append(TableFilter(table=table_name, dax_filter=value_part))
+                i += 1
+                continue
+            perm_indent = len(lines[i]) - len(lines[i].lstrip("\t "))
+            collected = []
+            j = i + 1
+            while j < len(lines):
+                line = lines[j]
+                if not line.strip():
+                    j += 1
+                    continue
+                indent = len(line) - len(line.lstrip("\t "))
+                if indent <= perm_indent:
+                    break
+                collected.append(line)
+                j += 1
+            filters.append(TableFilter(table=table_name, dax_filter=_dedent("\n".join(collected))))
+            i = j
 
         is_dynamic = False
         dynamic_fn = ""
@@ -1604,9 +1632,16 @@ def parse_semantic_model(model_folder: str, report_name: str) -> SemanticModel:
     if os.path.exists(relationships_file):
         model.relationships = _parse_relationships(relationships_file)
 
-    roles_file = os.path.join(definition_path, "roles.tmdl")
-    if os.path.exists(roles_file):
-        model.security_roles = _parse_roles(roles_file)
+    roles_dir = os.path.join(definition_path, "roles")
+    security_roles: list = []
+    if os.path.isdir(roles_dir):
+        for filename in sorted(os.listdir(roles_dir)):
+            if filename.endswith(".tmdl"):
+                security_roles.extend(_parse_roles(os.path.join(roles_dir, filename)))
+    legacy_roles_file = os.path.join(definition_path, "roles.tmdl")
+    if os.path.exists(legacy_roles_file):
+        security_roles.extend(_parse_roles(legacy_roles_file))
+    model.security_roles = security_roles
 
     model.model_culture, model.model_data_source_version, model.database_compatibility_level = \
         _parse_model_database(definition_path)

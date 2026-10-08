@@ -1,0 +1,4 @@
+role 'Regional Managers'
+	modelPermission: read
+
+	tablePermission 'fact-sales' = [region] = "North"
