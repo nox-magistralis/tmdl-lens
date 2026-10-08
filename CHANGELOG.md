@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.4](https://github.com/nox-magistralis/tmdl-lens/compare/v0.5.3...v0.5.4) (2026-10-06)
+
+
+### Bug Fixes
+
+* **parser:** classify M functions by annotation and body start ([d1615ff](https://github.com/nox-magistralis/tmdl-lens/commit/d1615ffda98e1bd430db7d7f7da05671d8c62051))
+* **parser:** default omitted relationship cardinality to many-to-one ([e1c0030](https://github.com/nox-magistralis/tmdl-lens/commit/e1c0030feca18e52ecdd0e257a6cc13b4879be07))
+* **parser:** handle quoted names, escapes and expressionless measures ([699643b](https://github.com/nox-magistralis/tmdl-lens/commit/699643b033cbd9e37399ae1e849b8d51d02e7090))
+* **parser:** relationship defaults, function and name parsing ([0b7ad0b](https://github.com/nox-magistralis/tmdl-lens/commit/0b7ad0b631a079815db8261bee14d567e5257f21))
+
 ## [0.5.3](https://github.com/nox-magistralis/tmdl-lens/compare/v0.5.2...v0.5.3) (2026-10-06)
 
 
