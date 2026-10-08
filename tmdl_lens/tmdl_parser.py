@@ -200,6 +200,17 @@ _TRANSFORM_FNS = {
     "Table.Join",
 }
 
+_STDLIB_NAMESPACES = frozenset({
+    "Table", "List", "Text", "Number", "Date", "DateTime", "DateTimeZone", "Time",
+    "Duration", "Record", "Json", "Binary", "BinaryFormat", "Splitter", "Combiner",
+    "Replacer", "Value", "Type", "Uri", "Logical", "Character", "Expression",
+    "Function", "Byte", "Single", "Double", "Decimal", "Currency", "Percentage",
+    "Lines", "Comparer", "Culture", "Diagnostics", "Error", "Guid", "Order",
+    "Occurrence", "RelativePosition", "Precision", "RoundingMode", "JoinKind",
+    "JoinAlgorithm", "MissingField", "QuoteStyle", "ExtraValues", "Compression",
+    "Cube", "Variable", "Action", "Embedded",
+})
+
 
 
 # ---------------------------------------------------------------------------
@@ -841,21 +852,15 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
 
     # 4. Generic connector detection - primary path for external connectors
     #    Matches any Namespace.Function( call, excluding M stdlib and transforms
-    generic = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
-    if generic:
-        fn = generic.group(1)
-        if fn not in _TRANSFORM_FNS and not fn.startswith("Table.") and not fn.startswith("List.") \
-                and not fn.startswith("Text.") and not fn.startswith("Number.") \
-                and not fn.startswith("Date.") and not fn.startswith("DateTime.") \
-                and not fn.startswith("Record.") and not fn.startswith("Json.") \
-                and not fn.startswith("Binary.") and not fn.startswith("Splitter.") \
-                and not fn.startswith("Combiner.") and not fn.startswith("Replacer."):
-            namespace, function = fn.split(".", 1)
-            expr.source_type = "connector"
-            expr.connector_namespace = namespace
-            expr.connector_function = function
-            _extract_connector_details(expr, clean, namespace, function)
-            return expr
+    for call in re.finditer(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean):
+        namespace, function = call.group(1).split(".", 1)
+        if namespace in _STDLIB_NAMESPACES or f"{namespace}.{function}" in _TRANSFORM_FNS:
+            continue
+        expr.source_type = "connector"
+        expr.connector_namespace = namespace
+        expr.connector_function = function
+        _extract_connector_details(expr, clean, namespace, function)
+        return expr
 
     # 5a. Derived - references a shared expression: Source = #"name"
     ref_quoted = re.search(r'\bSource\s*=\s*#"([^"]+)"', clean)
@@ -935,6 +940,51 @@ def _extract_string_or_param_arg(clean: str, pattern_quoted: str, pattern_bare: 
     return None
 
 
+def _native_query_from_value_native_query(clean: str) -> str:
+    start = re.search(r'Value\.NativeQuery\s*\(', clean)
+    if not start:
+        return ""
+    i = start.end()
+    depth = 1
+    args: list[str] = []
+    current: list[str] = []
+    in_string = False
+    while i < len(clean) and depth > 0:
+        ch = clean[i]
+        if in_string:
+            if ch == '"':
+                if clean[i:i + 2] == '""':
+                    current.append('""')
+                    i += 2
+                    continue
+                in_string = False
+            current.append(ch)
+        elif ch == '"':
+            in_string = True
+            current.append(ch)
+        elif ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                args.append("".join(current))
+                break
+            current.append(ch)
+        elif ch == "," and depth == 1:
+            args.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    if len(args) < 2:
+        return ""
+    second = args[1].strip()
+    if len(second) >= 2 and second[0] == second[-1] == '"':
+        return second[1:-1].replace('""', '"')
+    return ""
+
+
 def _extract_connector_details(expr: SourceExpression, clean: str, namespace: str, function: str) -> None:
     """Populates detail fields on expr based on namespace/function. Mutates in place."""
 
@@ -961,10 +1011,10 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
             expr.is_native_query = True
             expr.native_query    = native.group(1)
         else:
-            native_vq = re.search(r'Value\.NativeQuery\s*\([^,]+,\s*"([^"]+)"', clean)
+            native_vq = _native_query_from_value_native_query(clean)
             if native_vq:
                 expr.is_native_query = True
-                expr.native_query    = native_vq.group(1)
+                expr.native_query    = native_vq
             else:
                 for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
                     schema_val = nav.group(1)

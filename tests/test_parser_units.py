@@ -607,3 +607,68 @@ def test_parse_role_quoted_escaped_name(tmp_path):
     assert roles[0].name == "Rep's Role"
     assert len(roles[0].table_filters) == 1
     assert roles[0].table_filters[0].table == "Rep's Data"
+
+
+def test_classify_connector_after_stdlib_calls():
+    expr = _classify_m_content(
+        'let\n'
+        '    Start = Date.From(DateTime.LocalNow()),\n'
+        '    Source = Sql.Database("srv", "db")\n'
+        'in\n'
+        '    Source',
+        "t",
+    )
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "Sql"
+    assert expr.connector_function == "Database"
+    assert expr.server == "srv"
+    assert expr.database == "db"
+
+
+def test_classify_derived_after_stdlib_binding():
+    expr = _classify_m_content(
+        'let\n'
+        '    D = Duration.Days(#duration(1, 0, 0, 0)),\n'
+        '    Source = #"base"\n'
+        'in\n'
+        '    Source',
+        "t",
+    )
+    assert expr.source_type == "derived"
+    assert expr.derived_from == "base"
+
+
+def test_classify_native_query_wrapped_connector():
+    expr = _classify_m_content(
+        'Value.NativeQuery(AmazonRedshift.Database("h", "db"), "select 1")',
+        "t",
+    )
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "AmazonRedshift"
+    assert expr.connector_function == "Database"
+    assert expr.server == "h"
+    assert expr.database == "db"
+    assert expr.is_native_query is True
+    assert expr.native_query == "select 1"
+
+
+def test_classify_native_query_wrapped_sql():
+    expr = _classify_m_content(
+        'Value.NativeQuery(Sql.Database("srv", "db"), "select 1")',
+        "t",
+    )
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "Sql"
+    assert expr.is_native_query is True
+    assert expr.native_query == "select 1"
+
+
+def test_classify_stdlib_only_stays_unresolved():
+    expr = _classify_m_content(
+        'let\n'
+        '    D = Duration.Days(#duration(1, 0, 0, 0))\n'
+        'in\n'
+        '    D',
+        "t",
+    )
+    assert expr.source_type != "connector"

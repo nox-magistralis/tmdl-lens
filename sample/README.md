@@ -318,7 +318,6 @@ Use tmdl-lens to provide a manual label for each.
 | Expression | Reason |
 |---|---|
 | `source-via-custom-function` | Unclassified source type: unknown |
-| `source-dynamic` | Unclassified source type: unknown |
 
 ---
 
