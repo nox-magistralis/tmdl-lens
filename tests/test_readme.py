@@ -11,7 +11,9 @@ from tmdl_lens.readme_generator import (
     generate_readme,
 )
 from tmdl_lens.tmdl_parser import (
+    Column,
     Measure,
+    Relationship,
     SecurityRole,
     SemanticModel,
     Table,
@@ -127,6 +129,44 @@ def test_readme_escapes_markdown_cells():
     assert '`[a] = "x" \\|\\| [b] = "y" && [c] = "z"`' in readme
     measures_row = next(line for line in readme.split("\n") if line.startswith("| `Taxed`"))
     assert measures_row.count("|") - measures_row.count("\\|") == 5
+
+
+def test_auto_date_tables_filtered():
+    auto1 = Table(
+        name="LocalDateTable_abc", table_type="calculated", is_loaded=True, is_hidden=True,
+        columns=[Column(name="Date", data_type="dateTime", format_string="Short Date")],
+    )
+    auto2 = Table(
+        name="DateTableTemplate_def", table_type="calculated", is_loaded=True, is_hidden=True,
+        columns=[Column(name="Date", data_type="dateTime", format_string="Short Date")],
+    )
+    real_calc = Table(
+        name="dim-date", table_type="calculated", is_loaded=True,
+        columns=[Column(name="Date", data_type="dateTime", format_string="Long Date")],
+    )
+    real_fact = Table(
+        name="fact-sales", table_type="fact", is_loaded=True,
+        columns=[Column(name="amount", data_type="double", format_string="#,##0.00")],
+    )
+    helper = Table(name="helper-x", table_type="helper", is_loaded=True, is_hidden=True)
+    rel_to_auto = Relationship(
+        from_table="fact-sales", from_column="order_date",
+        to_table="LocalDateTable_abc", to_column="Date",
+    )
+    model = SemanticModel(
+        report_name="T",
+        tables=[real_fact, real_calc, helper, auto1, auto2],
+        relationships=[rel_to_auto],
+    )
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
+    for out in (readme, html):
+        assert "LocalDateTable_abc" not in out
+        assert "DateTableTemplate_def" not in out
+        assert "1 calculated table" in out
+        assert "Short Date" not in out
+        assert "Long Date" in out
+    assert "| Hidden Tables | 1 |" in readme
 
 
 def test_readme_unresolved_section(sample_model, sample_resolved, gen_config):

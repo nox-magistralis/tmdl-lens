@@ -6,6 +6,8 @@ a structured README.md for each Power BI report.
 """
 
 import re
+from dataclasses import replace
+
 from tmdl_lens.tmdl_parser import SemanticModel, Table
 from tmdl_lens.source_resolver import CONNECTOR_TYPE_LABEL, ResolvedSource, get_table_source
 
@@ -1105,6 +1107,9 @@ def generate_html(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
+    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
+    model = replace(model, tables=tables)
+
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded  = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
@@ -1455,6 +1460,9 @@ def generate_readme(
     report_name = config.get("report_name", model.report_name)
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
+
+    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
+    model = replace(model, tables=tables)
 
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
