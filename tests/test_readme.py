@@ -145,6 +145,26 @@ def test_html_detail_fields_match_markdown(sample_model, gen_config):
     assert "<code>dbo.orders</code>" in html
 
 
+def test_measure_inventory_counts_match_measures_section(sample_model, sample_resolved, gen_config):
+    readme = generate_readme(sample_model, sample_resolved, gen_config)
+    html = generate_html(sample_model, sample_resolved, gen_config)
+    assert "**Format Strings Used (7 total, 3 unique)**" in readme
+    assert "Measure Format Strings (7 total, 3 unique)" in html
+    assert "| Measures | 7 | - |" in readme
+
+
+def test_hidden_support_table_counted_once():
+    hidden_calc = Table(
+        name="hidden-calc", table_type="calculated", is_loaded=True, is_hidden=True
+    )
+    visible = Table(name="fact-sales", table_type="fact", is_loaded=True)
+    model = SemanticModel(report_name="T", tables=[visible, hidden_calc])
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
+    assert "| Hidden Tables | 1 |" in readme
+    assert "<td>Hidden Tables</td><td>1</td>" in html
+
+
 def test_display_folder_backslashes_escaped():
     measure = Measure(
         name="Total", dax_expression="SUM([a])", display_folder="Metrics\\Base"

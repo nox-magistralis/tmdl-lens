@@ -311,13 +311,13 @@ COUNTROWS('helper-order-lookup')
 ```
 
 
-**Format Strings Used (5 total, 3 unique)**
+**Format Strings Used (7 total, 3 unique)**
 
 | Format String | Count | Measures |
 |---|---|---|
-| `#,##0.00` | 2 | `Total Sales Amount` (_measures), `Avg Order Value` (_measures) |
+| `#,##0.00` | 3 | `Total Sales Amount` (_measures), `Avg Order Value` (_measures), `Sales YTD` (_measures) |
+| `#,##0` | 2 | `Order Count` (_measures), `_Row Count Helper` (fact-sales) |
 | `0` | 2 | `Order Fulfillment Summary` (fact-sales), `Open Order Count` (helper-order-lookup) |
-| `#,##0` | 1 | `Order Count` (_measures) |
 
 ---
 

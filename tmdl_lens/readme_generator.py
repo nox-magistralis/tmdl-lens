@@ -113,6 +113,32 @@ def _is_auto_date_table(name: str) -> bool:
     return name.startswith("LocalDateTable_") or name.startswith("DateTableTemplate_")
 
 
+def _collect(model: SemanticModel, show_hidden: bool) -> dict:
+    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
+    replaced = replace(model, tables=tables)
+    support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
+    loaded = [t for t in tables if t.is_loaded and t.table_type not in support_types]
+    support = [t for t in tables if t.is_loaded and t.table_type in support_types]
+    staging = [t for t in tables if not t.is_loaded]
+    loaded_visible = [t for t in loaded if not t.is_hidden]
+    hidden_tables = [t for t in tables if t.is_loaded and t.is_hidden]
+    return {
+        "model": replaced,
+        "tables": tables,
+        "loaded": loaded,
+        "support": support,
+        "staging": staging,
+        "loaded_visible": loaded_visible,
+        "hidden_tables": hidden_tables,
+        "measures": [
+            (t.name, m) for t in tables for m in t.measures
+            if show_hidden or not m.is_hidden
+        ],
+        "all_measures": [(t.name, m) for t in tables for m in t.measures],
+        "calc_cols": [c for t in tables for c in t.columns if c.is_calculated],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Section helpers
 # ---------------------------------------------------------------------------
@@ -556,18 +582,17 @@ def _column_format_string_inventory(tables: list[Table], heading: str = "Format 
     return "\n".join(lines)
 
 
-def _measure_format_string_inventory(tables: list[Table]) -> str:
-    all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
-    if not all_measures:
+def _measure_format_string_inventory(measures: list) -> str:
+    if not measures:
         return ""
 
     groups: dict[str, list[tuple[str, str]]] = {}
-    for table_name, m in all_measures:
+    for table_name, m in measures:
         key = m.format_string.strip() if m.format_string.strip() else "(none)"
         groups.setdefault(key, []).append((m.name, table_name))
 
     sorted_groups = sorted(groups.items(), key=lambda x: -len(x[1]))
-    total = len(all_measures)
+    total = len(measures)
     unique = len(groups)
 
     lines = [
@@ -585,11 +610,8 @@ def _measure_format_string_inventory(tables: list[Table]) -> str:
     return "\n".join(lines)
 
 
-def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool = True) -> str:
-    if show_hidden:
-        all_measures = [(t.name, m) for t in tables for m in t.measures]
-    else:
-        all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
+def _measures_section(measures: list, include_dax: bool) -> str:
+    all_measures = measures
     lines = ["## 3. Measures", ""]
 
     if not all_measures:
@@ -614,7 +636,7 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
 
-    lines.append(_measure_format_string_inventory(tables))
+    lines.append(_measure_format_string_inventory(measures))
     lines += ["---", ""]
     return "\n".join(lines)
 
@@ -945,6 +967,7 @@ def _statistics_section(
     loaded_tables: list[Table],
     support_tables: list[Table],
     staging_tables: list[Table],
+    hidden_tables: list[Table],
 ) -> str:
     calc      = [t for t in support_tables if t.table_type == "calculated"]
     fp        = [t for t in support_tables if t.table_type == "field_parameter"]
@@ -959,8 +982,6 @@ def _statistics_section(
 
     def names(lst):
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "-"
-
-    hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
 
     lines = [
         "## 8. Model Statistics",
@@ -1107,15 +1128,14 @@ def generate_html(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
-    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
-    model = replace(model, tables=tables)
-
-    support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
-    loaded  = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
-    support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
-    staging = [t for t in model.tables if not t.is_loaded]
-    loaded_visible = [t for t in loaded if not t.is_hidden]
-    loaded_hidden  = [t for t in loaded if t.is_hidden]
+    collected = _collect(model, show_hidden)
+    model = collected["model"]
+    loaded = collected["loaded"]
+    support = collected["support"]
+    staging = collected["staging"]
+    loaded_visible = collected["loaded_visible"]
+    hidden_tables = collected["hidden_tables"]
+    all_measures = collected["measures"]
 
     ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
@@ -1283,10 +1303,6 @@ def generate_html(
                         body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
 
     body.append('<h2>3. Measures</h2>')
-    if show_hidden:
-        all_measures = [(t.name, m) for t in model.tables for m in t.measures]
-    else:
-        all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
     if not all_measures:
         body.append('<p class="empty">No measures defined in this model.</p>')
     else:
@@ -1426,7 +1442,7 @@ def generate_html(
     def _names(lst): return _RawHtml(", ".join(_code(t.name) for t in lst)) if lst else "-"
     body.append(_html_table(["Category", "Count", "Items"], [
         ["Loaded Tables",        str(len(loaded_visible)),       _names(loaded_visible)],
-        ["Hidden Tables",        str(len(loaded_hidden)),        _names(loaded_hidden)],
+        ["Hidden Tables",        str(len(hidden_tables)),        _names(hidden_tables)],
         ["Calculated Tables",    str(len(calc)),                 _names(calc)],
         ["Field Parameters",     str(len(fp)),                   _names(fp)],
         ["Measures-Only Tables", str(len(mo)),                   _names(mo)],
@@ -1464,16 +1480,12 @@ def generate_readme(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
-    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
-    model = replace(model, tables=tables)
-
-    support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
-    loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
-    support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
-    staging  = [t for t in model.tables if not t.is_loaded]
-    loaded_visible = [t for t in loaded if not t.is_hidden]
-    # loaded_hidden is no longer used - hidden tables render inline in Table Details.
-    # loaded_visible is still used for Data Sources and Statistics (visible-only).
+    collected = _collect(model, show_hidden)
+    model = collected["model"]
+    loaded = collected["loaded"]
+    support = collected["support"]
+    staging = collected["staging"]
+    loaded_visible = collected["loaded_visible"]
 
     ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
@@ -1482,7 +1494,7 @@ def generate_readme(
         _overview_section(config, model),
         _data_sources_section(loaded, staging, support, resolved, model),
         _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
-        _measures_section(model.tables, include_dax, show_hidden),
+        _measures_section(collected["measures"], include_dax),
         _functions_section(model, include_dax),
         _relationships_section(model),
         _security_roles_section(model),
@@ -1493,7 +1505,7 @@ def generate_readme(
     if unresolved:
         sections.append(unresolved)
 
-    sections.append(_statistics_section(model, loaded_visible, support, staging))
+    sections.append(_statistics_section(model, loaded_visible, support, staging, collected["hidden_tables"]))
 
     sections.append("*Generated by tmdl-lens*\n")
 
