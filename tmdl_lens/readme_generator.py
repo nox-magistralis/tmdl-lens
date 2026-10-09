@@ -1014,21 +1014,23 @@ pre code { background: none; color: inherit; padding: 0; }
 """
 
 
-def _esc(text: str) -> str:
+class _RawHtml(str):
+    """A string that is already safe, fully-built HTML. _html_table and
+    _html_fmt_inventory_table skip escaping for cells of this type."""
+    pass
+
+
+def _esc(text) -> _RawHtml:
+    if isinstance(text, _RawHtml):
+        return text
     a = chr(38)  # &
-    return (
+    return _RawHtml(
         str(text)
         .replace(chr(38), a + "amp;")
         .replace(chr(60), a + "lt;")
         .replace(chr(62), a + "gt;")
         .replace(chr(34), a + "quot;")
     )
-
-
-class _RawHtml(str):
-    """A string that is already safe, fully-built HTML. _html_table and
-    _html_fmt_inventory_table skip escaping for cells of this type."""
-    pass
 
 
 def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") -> str:
@@ -1365,12 +1367,12 @@ def generate_html(
         rows = []
         for role in model.security_roles:
             if not role.table_filters:
-                dyn = f"Yes ({_esc(role.dynamic_function)})" if role.is_dynamic else "No"
+                dyn = _RawHtml(f"Yes ({_esc(role.dynamic_function)})") if role.is_dynamic else "No"
                 rows.append([_code(role.name), "-", "-", dyn])
             else:
                 for i, tf in enumerate(role.table_filters):
                     role_cell = _code(role.name) if i == 0 else ""
-                    dyn = (f"Yes ({_esc(role.dynamic_function)})" if role.is_dynamic else "No") if i == 0 else ""
+                    dyn = (_RawHtml(f"Yes ({_esc(role.dynamic_function)})") if role.is_dynamic else "No") if i == 0 else ""
                     rows.append([role_cell, _code(tf.table), _code(tf.dax_filter), dyn])
         body.append(_html_table(["Role", "Table", "Filter", "Dynamic"], rows))
 

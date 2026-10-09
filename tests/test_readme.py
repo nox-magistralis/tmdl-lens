@@ -2,8 +2,20 @@
 test_readme.py - pytest tests for the Markdown/HTML generators.
 """
 
-from tmdl_lens.readme_generator import _build_function_usage_map, generate_html, generate_readme
-from tmdl_lens.tmdl_parser import Measure, SemanticModel, Table, UserFunction
+from tmdl_lens.readme_generator import (
+    _build_function_usage_map,
+    _esc,
+    generate_html,
+    generate_readme,
+)
+from tmdl_lens.tmdl_parser import (
+    Measure,
+    SecurityRole,
+    SemanticModel,
+    Table,
+    TableFilter,
+    UserFunction,
+)
 
 
 def test_readme_title(sample_model, sample_resolved, gen_config):
@@ -53,6 +65,36 @@ def test_function_usage_map():
     assert usage["AddTax"] == [("Taxed", "_measures"), ("Quoted Call", "_measures")]
     assert usage["My Func"] == [("Quoted Call", "_measures")]
     assert "Unused" not in usage
+
+
+def test_esc_is_idempotent():
+    once = _esc("a&b<c>d\"e")
+    assert _esc(once) == once
+
+
+def test_html_escapes_once():
+    fn = UserFunction(name="Tax Calc", expression="x", description="R&D <Ops> \"q\"")
+    measure = Measure(name="Taxed", dax_expression="AddTax([Total], 0.23)", description="R&D <Ops>")
+    table = Table(name="_measures", table_type="measures_only", measures=[measure])
+    model = SemanticModel(report_name="T", tables=[table], functions=[fn])
+    html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
+    assert "R&amp;D &lt;Ops&gt;" in html
+    assert "R&amp;amp;D" not in html
+    assert "&amp;lt;" not in html
+    assert "R&amp;D &lt;Ops&gt; &quot;q&quot;" in html
+
+
+def test_html_role_dynamic_label_escaped_once():
+    role = SecurityRole(
+        name="R& D",
+        table_filters=[TableFilter(table="t", dax_filter="[a] = \"x\"")],
+        is_dynamic=True,
+        dynamic_function="USER&NAME",
+    )
+    model = SemanticModel(report_name="T", tables=[], security_roles=[role])
+    html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
+    assert "Yes (USER&amp;NAME)" in html
+    assert "Yes (USER&amp;amp;NAME)" not in html
 
 
 def test_readme_unresolved_section(sample_model, sample_resolved, gen_config):
