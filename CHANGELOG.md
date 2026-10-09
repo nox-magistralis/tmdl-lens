@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/nox-magistralis/tmdl-lens/compare/v0.6.0...v0.6.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **generator:** compute table and measure lists once for both renderers ([1096310](https://github.com/nox-magistralis/tmdl-lens/commit/1096310c0eddee871d41b9f19977cc3ef9cb6cd8))
+* **generator:** rendering parity between Markdown and HTML ([c5aa471](https://github.com/nox-magistralis/tmdl-lens/commit/c5aa471aa2d977cc70d6fb806d01831b6c104beb))
+
 ## [0.6.0](https://github.com/nox-magistralis/tmdl-lens/compare/v0.5.4...v0.6.0) (2026-10-09)
 
 
