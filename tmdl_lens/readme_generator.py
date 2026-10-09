@@ -610,7 +610,7 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
         folders.setdefault(folder, []).append((table_name, m))
 
     for folder in sorted(folders.keys()):
-        lines += [f"### {folder}", "", "| Measure | Table | Format | Description |", "|---|---|---|---|"]
+        lines += [f"### {folder.replace(chr(92), chr(92) * 2)}", "", "| Measure | Table | Format | Description |", "|---|---|---|---|"]
         for table_name, m in folders[folder]:
             fmt  = f"`{m.format_string}`" if m.format_string else "-"
             desc = m.description or "-"

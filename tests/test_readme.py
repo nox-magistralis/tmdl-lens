@@ -131,6 +131,17 @@ def test_readme_escapes_markdown_cells():
     assert measures_row.count("|") - measures_row.count("\\|") == 5
 
 
+def test_display_folder_backslashes_escaped():
+    measure = Measure(
+        name="Total", dax_expression="SUM([a])", display_folder="Metrics\\Base"
+    )
+    table = Table(name="_measures", table_type="measures_only", measures=[measure])
+    model = SemanticModel(report_name="T", tables=[table])
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    assert "### Metrics\\\\Base" in readme
+    assert "### Metrics\\Base" not in readme
+
+
 def test_auto_date_tables_filtered():
     auto1 = Table(
         name="LocalDateTable_abc", table_type="calculated", is_loaded=True, is_hidden=True,
