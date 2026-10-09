@@ -1,0 +1,4 @@
+role Employees
+	modelPermission: read
+
+	tablePermission 'dim-product' = USERPRINCIPALNAME() = [email]

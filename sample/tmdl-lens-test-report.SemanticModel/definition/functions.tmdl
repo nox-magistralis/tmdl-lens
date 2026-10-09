@@ -1,0 +1,16 @@
+// ============================================================
+// tmdl-lens TEST FUNCTIONS FILE
+// DAX user-defined functions - intentionally fictional
+// ============================================================
+
+
+// ── FUNCTION 1: Inline scalar function ───────────────────────────────────────
+/// Adds sales tax to a net amount using the given rate.
+function AddTax = (amount: number, rate: number) => amount * (1 + rate)
+
+
+// ── FUNCTION 2: Multi-line function with parameters ──────────────────────────
+/// Returns the reorder threshold for a product category.
+function SafeStockThreshold =
+		(category: string) =>
+		IF(category == "Hardware", 50, 20)

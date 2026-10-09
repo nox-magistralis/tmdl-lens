@@ -10,12 +10,14 @@ from tmdl_lens.tmdl_parser import (
     _parse_calculation_items,
     _parse_column,
     _parse_expressions,
+    _parse_functions,
     _parse_measure,
     _parse_relationships,
     _parse_roles,
     _parse_table_file,
     _parse_tree,
     _strip_m_comments,
+    parse_semantic_model,
 )
 
 
@@ -607,3 +609,222 @@ def test_parse_role_quoted_escaped_name(tmp_path):
     assert roles[0].name == "Rep's Role"
     assert len(roles[0].table_filters) == 1
     assert roles[0].table_filters[0].table == "Rep's Data"
+
+
+def test_classify_connector_after_stdlib_calls():
+    expr = _classify_m_content(
+        'let\n'
+        '    Start = Date.From(DateTime.LocalNow()),\n'
+        '    Source = Sql.Database("srv", "db")\n'
+        'in\n'
+        '    Source',
+        "t",
+    )
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "Sql"
+    assert expr.connector_function == "Database"
+    assert expr.server == "srv"
+    assert expr.database == "db"
+
+
+def test_classify_derived_after_stdlib_binding():
+    expr = _classify_m_content(
+        'let\n'
+        '    D = Duration.Days(#duration(1, 0, 0, 0)),\n'
+        '    Source = #"base"\n'
+        'in\n'
+        '    Source',
+        "t",
+    )
+    assert expr.source_type == "derived"
+    assert expr.derived_from == "base"
+
+
+def test_classify_native_query_wrapped_connector():
+    expr = _classify_m_content(
+        'Value.NativeQuery(AmazonRedshift.Database("h", "db"), "select 1")',
+        "t",
+    )
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "AmazonRedshift"
+    assert expr.connector_function == "Database"
+    assert expr.server == "h"
+    assert expr.database == "db"
+    assert expr.is_native_query is True
+    assert expr.native_query == "select 1"
+
+
+def test_classify_native_query_wrapped_sql():
+    expr = _classify_m_content(
+        'Value.NativeQuery(Sql.Database("srv", "db"), "select 1")',
+        "t",
+    )
+    assert expr.source_type == "connector"
+    assert expr.connector_namespace == "Sql"
+    assert expr.is_native_query is True
+    assert expr.native_query == "select 1"
+
+
+def test_classify_stdlib_only_stays_unresolved():
+    expr = _classify_m_content(
+        'let\n'
+        '    D = Duration.Days(#duration(1, 0, 0, 0))\n'
+        'in\n'
+        '    D',
+        "t",
+    )
+    assert expr.source_type != "connector"
+
+
+def test_parse_roles_multiline_filter(tmp_path):
+    content = (
+        "role 'Multi Line'\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'fact-sales' =\n"
+        "\t\t\t[region] = \"South\"\n"
+        "\t\t\t\t&& [unit_price] > 0\n"
+    )
+    path = tmp_path / "roles.tmdl"
+    path.write_text(content, encoding="utf-8")
+    roles = _parse_roles(str(path))
+    assert len(roles) == 1
+    assert roles[0].name == "Multi Line"
+    assert len(roles[0].table_filters) == 1
+    assert roles[0].table_filters[0].table == "fact-sales"
+    assert roles[0].table_filters[0].dax_filter == "[region] = \"South\"\n\t&& [unit_price] > 0"
+
+
+def test_parse_roles_fenced_filter(tmp_path):
+    content = (
+        "role Fenced\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'dim-product' = ```\n"
+        "\t\t[category] = \"Hardware\"\n"
+        "\t\t```\n"
+    )
+    path = tmp_path / "roles.tmdl"
+    path.write_text(content, encoding="utf-8")
+    roles = _parse_roles(str(path))
+    assert len(roles) == 1
+    assert roles[0].name == "Fenced"
+    assert roles[0].table_filters[0].dax_filter == "[category] = \"Hardware\""
+
+
+def test_parse_semantic_model_roles_folder(tmp_path):
+    definition = tmp_path / "definition"
+    roles_dir = definition / "roles"
+    roles_dir.mkdir(parents=True)
+    (roles_dir / "Static.tmdl").write_text(
+        "role Static\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'fact-sales' = [region] = \"North\"\n",
+        encoding="utf-8",
+    )
+    (roles_dir / "Multi Line.tmdl").write_text(
+        "role 'Multi Line'\n"
+        "\tmodelPermission: read\n"
+        "\n"
+        "\ttablePermission 'fact-sales' =\n"
+        "\t\t\t[region] = \"South\"\n"
+        "\t\t\t\t&& [unit_price] > 0\n",
+        encoding="utf-8",
+    )
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert [r.name for r in model.security_roles] == ["Multi Line", "Static"]
+    multi = model.security_roles[0]
+    assert multi.table_filters[0].dax_filter == "[region] = \"South\"\n\t&& [unit_price] > 0"
+
+
+def test_parse_semantic_model_roles_folder_and_legacy(tmp_path):
+    definition = tmp_path / "definition"
+    roles_dir = definition / "roles"
+    roles_dir.mkdir(parents=True)
+    (roles_dir / "Folder Role.tmdl").write_text(
+        "role 'Folder Role'\n\tmodelPermission: read\n", encoding="utf-8"
+    )
+    (definition / "roles.tmdl").write_text(
+        "role Legacy\n\tmodelPermission: read\n", encoding="utf-8"
+    )
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert [r.name for r in model.security_roles] == ["Folder Role", "Legacy"]
+
+
+def test_parse_semantic_model_roles_legacy_only(tmp_path):
+    definition = tmp_path / "definition"
+    definition.mkdir(parents=True)
+    (definition / "roles.tmdl").write_text(
+        "role Legacy\n\tmodelPermission: read\n", encoding="utf-8"
+    )
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert [r.name for r in model.security_roles] == ["Legacy"]
+
+
+def test_parse_semantic_model_roles_none(tmp_path):
+    (tmp_path / "definition").mkdir()
+    model = parse_semantic_model(str(tmp_path), "Test")
+    assert model.security_roles == []
+
+
+def test_parse_functions_inline(tmp_path):
+    content = (
+        "/// Adds sales tax to a net amount using the given rate.\n"
+        "function AddTax = (amount: number, rate: number) => amount * (1 + rate)\n"
+    )
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "AddTax"
+    assert functions[0].expression == "(amount: number, rate: number) => amount * (1 + rate)"
+    assert functions[0].description == "Adds sales tax to a net amount using the given rate."
+
+
+def test_parse_functions_multiline_with_properties(tmp_path):
+    content = (
+        "function SafeStock =\n"
+        "\t\t(category: string) =>\n"
+        "\t\tIF(category == \"Hardware\", 50, 20)\n"
+        "\tlineageTag: abc-123\n"
+    )
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "SafeStock"
+    assert functions[0].expression == "(category: string) =>\n\t\tIF(category == \"Hardware\", 50, 20)"
+
+
+def test_parse_functions_fenced(tmp_path):
+    content = (
+        "function Fenced = ```\n"
+        "\tVAR x = 1\n"
+        "\tRETURN x\n"
+        "\t```\n"
+    )
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "Fenced"
+    assert functions[0].expression == "VAR x = 1\nRETURN x"
+
+
+def test_parse_functions_quoted_escaped_name(tmp_path):
+    content = "function 'Rep''s Func' = (x as any) => x\n"
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "Rep's Func"
+    assert functions[0].expression == "(x as any) => x"
+
+
+def test_parse_functions_empty_file(tmp_path):
+    content = "// no functions here\n"
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert functions == []

@@ -15,12 +15,13 @@
 
 ## 1. Data Sources
 
-This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 measures-only table, 1 calculation group, 1 not loaded, 7 measures, 3 relationships.
+This model contains 3 loaded tables, 1 calculated table, 1 field parameter, 1 measures-only table, 1 calculation group, 1 not loaded, 7 measures, 3 relationships.
 
 | Table | Source Type | Source |
 |---|---|---|
 | `dim-product` | Power Platform Dataflow | source-dataflow-platform -> Power Platform Dataflow -> product_dim |
 | `fact-sales` | Power BI Dataflow | source-dataflow-standard -> Power BI Dataflow -> sales_fact |
+| `helper-order-lookup` (hidden) | SQL | source-sql-staging -> source-sql-direct -> SQL -> fake-server.database.windows.net -> SalesDB -> dbo.orders |
 
 ### Support Tables
 
@@ -201,6 +202,56 @@ DIVIDE(
 
 ---
 
+### `dim-date`
+
+**Source:** Calculated (DAX)  
+
+```dax
+CALENDARAUTO()
+```
+
+**Columns**
+
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `Date` | Date/Time | `Long Date` | none | `Date` | - | - |  |
+| `Year` | Integer | `0` | none | `Year` | - | - |  |
+| `MonthName` | Text | - | none | `MonthName` | `MonthNumber` | - |  |
+| `MonthNumber` | Integer | `0` | none | `MonthNumber` | - | - |  |
+
+**Key Column:** `Date`  
+
+**Calculated Columns**
+
+- **`IsWeekend`**
+  ```dax
+  WEEKDAY('dim-date'[Date], 2) > 5
+  ```
+- **`PriorYearFlag`**
+  ```dax
+  IF(
+				YEAR('dim-date'[Date]) = YEAR(TODAY()) - 1,
+				TRUE(),
+				FALSE()
+			)
+  ```
+
+---
+
+### `param-metric-selector`
+
+**Source:** Field Parameter  
+
+**Columns**
+
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `param-metric-selector` | - | - | none | `[Value1]` | `param-metric-selector Order` | - |  |
+| `param-metric-selector Fields` | - | - | none | `[Value2]` | - | - | Hidden |
+| `param-metric-selector Order` | - | `0` | sum | `[Value3]` | - | - | Hidden |
+
+---
+
 
 **Format Strings Used (23 total, 3 unique)**
 
@@ -270,7 +321,27 @@ COUNTROWS('helper-order-lookup')
 
 ---
 
-## 4. Relationships
+## 4. Functions
+
+| Function | Used By | Description |
+|---|---|---|
+| `AddTax` | - | Adds sales tax to a net amount using the given rate. |
+| `SafeStockThreshold` | - | Returns the reorder threshold for a product category. |
+
+**`AddTax`**
+```dax
+(amount: number, rate: number) => amount * (1 + rate)
+```
+
+**`SafeStockThreshold`**
+```dax
+(category: string) =>
+		IF(category == "Hardware", 50, 20)
+```
+
+---
+
+## 5. Relationships
 
 | From Table | From Column | To Table | To Column | Cardinality | Cross Filter | Security Filter |
 |---|---|---|---|---|---|---|
@@ -285,20 +356,20 @@ COUNTROWS('helper-order-lookup')
 
 ---
 
-## 5. Security Roles
+## 6. Security Roles
 
 | Role | Table | Filter | Dynamic |
 |---|---|---|---|
-| `Regional Managers` | `fact-sales` | `[region] = "North"` | No |
-| `Employees` | `dim-product` | `USERPRINCIPALNAME() = [email]` | Yes (USERPRINCIPALNAME) |
-| `Legacy Users` | `dim-product` | `USERNAME() = [username]` | Yes (USERNAME) |
+| `Administrators` | - | - | No |
 | `Area Supervisors` | `fact-sales` | `[region] = "South"` | No |
 |  | `dim-product` | `[category] = "Hardware"` |  |
-| `Administrators` | - | - | No |
+| `Employees` | `dim-product` | `USERPRINCIPALNAME() = [email]` | Yes (USERPRINCIPALNAME) |
+| `Legacy Users` | `dim-product` | `USERNAME() = [username]` | Yes (USERNAME) |
+| `Regional Managers` | `fact-sales` | `[region] = "North"` | No |
 
 ---
 
-## 6. M Parameters
+## 7. M Parameters
 
 | Parameter | Type | Value | Used By |
 |---|---|---|---|
@@ -318,11 +389,10 @@ Use tmdl-lens to provide a manual label for each.
 | Expression | Reason |
 |---|---|
 | `source-via-custom-function` | Unclassified source type: unknown |
-| `source-dynamic` | Unclassified source type: unknown |
 
 ---
 
-## 7. Model Statistics
+## 8. Model Statistics
 
 | Category | Count | Items |
 |---|---|---|

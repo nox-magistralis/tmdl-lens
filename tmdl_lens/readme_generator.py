@@ -6,6 +6,8 @@ a structured README.md for each Power BI report.
 """
 
 import re
+from dataclasses import replace
+
 from tmdl_lens.tmdl_parser import SemanticModel, Table
 from tmdl_lens.source_resolver import CONNECTOR_TYPE_LABEL, ResolvedSource, get_table_source
 
@@ -155,18 +157,32 @@ def _model_summary(
 # Section builders
 # ---------------------------------------------------------------------------
 
+def _md_cell(value) -> str:
+    return (
+        str(value)
+        .replace("|", "\\|")
+        .replace("\r\n", " ")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
+
+
+def _md_row(*cells) -> str:
+    return "| " + " | ".join(_md_cell(c) for c in cells) + " |"
+
+
 def _overview_section(config: dict, model: SemanticModel) -> str:
     rows = []
     if config.get("owner"):
-        rows.append(f"| **Owner** | {config['owner']} |")
+        rows.append(_md_row("**Owner**", config["owner"]))
     if config.get("team"):
-        rows.append(f"| **Team** | {config['team']} |")
+        rows.append(_md_row("**Team**", config["team"]))
     if config.get("refresh_schedule"):
-        rows.append(f"| **Refresh Schedule** | {config['refresh_schedule']} |")
+        rows.append(_md_row("**Refresh Schedule**", config["refresh_schedule"]))
     rows.extend([
-        f"| **Culture** | {model.model_culture or '-'} |",
-        f"| **Compatibility Level** | {model.database_compatibility_level or '-'} |",
-        f"| **Data Source Version** | {model.model_data_source_version or '-'} |",
+        _md_row("**Culture**", model.model_culture or "-"),
+        _md_row("**Compatibility Level**", model.database_compatibility_level or "-"),
+        _md_row("**Data Source Version**", model.model_data_source_version or "-"),
     ])
 
     lines = [
@@ -205,7 +221,8 @@ def _data_sources_section(
             else:
                 src_type = "-"
                 label    = "-"
-            lines.append(f"| `{t.name}` | {src_type} | {label} |")
+            name_cell = f"`{t.name}` (hidden)" if t.is_hidden else f"`{t.name}`"
+            lines.append(_md_row(name_cell, src_type, label))
         lines.append("")
     else:
         lines += ["*No loaded tables found.*", ""]
@@ -218,7 +235,7 @@ def _data_sources_section(
             "|---|---|",
         ]
         for t in support_tables:
-            lines.append(f"| `{t.name}` | {_table_type_label(t.table_type)} |")
+            lines.append(_md_row(f"`{t.name}`", _table_type_label(t.table_type)))
         lines.append("")
 
     if staging_tables:
@@ -239,7 +256,7 @@ def _data_sources_section(
             else:
                 src_type = "-"
                 label    = "-"
-            lines.append(f"| `{t.name}` | {src_type} | {label} |")
+            lines.append(_md_row(f"`{t.name}`", src_type, label))
         lines.append("")
         staging_fmt = _column_format_string_inventory(staging_tables, heading="Not Loaded Table Format Strings Used")
         if staging_fmt:
@@ -409,7 +426,7 @@ def _table_detail_block(
             desc    = col.description or "-"
             hidden  = "Hidden" if col.is_hidden else ""
             lines.append(
-                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} | {hidden} |"
+                _md_row(f"`{col.name}`", _dtype(col.data_type), fmt, summ, src_col, sort_by, desc, hidden)
             )
         lines.append("")
 
@@ -445,7 +462,7 @@ def _table_detail_block(
         lines += ["**Calculation Items**", "", "| Item | Ordinal | Format String |", "|---|---|---|"]
         for item in table.calculation_items:
             fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "-"
-            lines.append(f"| `{item.name}` | {item.ordinal} | {fmt} |")
+            lines.append(_md_row(f"`{item.name}`", item.ordinal, fmt))
         lines.append("")
         lines += [
             "> Calculation items can be applied to any measure at report-build time "
@@ -469,7 +486,7 @@ def _table_detail_block(
             fmt    = f"`{m.format_string}`" if m.format_string else "-"
             desc   = m.description or "-"
             hidden = "Hidden" if m.is_hidden else ""
-            lines.append(f"| `{m.name}` | {fmt} | {desc} | {hidden} |")
+            lines.append(_md_row(f"`{m.name}`", fmt, desc, hidden))
         if include_dax:
             lines += ["", "**Measure DAX**", ""]
             for m in display_measures:
@@ -500,11 +517,14 @@ def _table_details_section(
     show_hidden: bool = True,
 ) -> str:
     lines = ["## 2. Table Details", ""]
-    calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
+    detail_support = [
+        t for t in support_tables
+        if t.table_type in ("calc_group", "calculated", "field_parameter")
+    ]
     if show_hidden:
-        all_tables = loaded_tables + calc_groups
+        all_tables = loaded_tables + detail_support
     else:
-        all_tables = [t for t in loaded_tables if not t.is_hidden] + calc_groups
+        all_tables = [t for t in loaded_tables if not t.is_hidden] + detail_support
     if all_tables:
         for t in all_tables:
             lines.append(_table_detail_block(t, resolved, include_dax, tables_by_name, hidden_measures_map, hidden_columns_map, show_hidden))
@@ -539,7 +559,7 @@ def _column_format_string_inventory(tables: list[Table], heading: str = "Format 
     for fmt, items in sorted_groups:
         items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
         fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
-        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+        lines.append(_md_row(fmt_cell, len(items), items_str))
     lines.append("")
     return "\n".join(lines)
 
@@ -568,7 +588,7 @@ def _measure_format_string_inventory(tables: list[Table]) -> str:
     for fmt, items in sorted_groups:
         items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
         fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
-        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+        lines.append(_md_row(fmt_cell, len(items), items_str))
     lines.append("")
     return "\n".join(lines)
 
@@ -594,7 +614,7 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
         for table_name, m in folders[folder]:
             fmt  = f"`{m.format_string}`" if m.format_string else "-"
             desc = m.description or "-"
-            lines.append(f"| `{m.name}` | `{table_name}` | {fmt} | {desc} |")
+            lines.append(_md_row(f"`{m.name}`", f"`{table_name}`", fmt, desc))
         lines.append("")
         if include_dax:
             for _, m in folders[folder]:
@@ -607,8 +627,48 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
     return "\n".join(lines)
 
 
+def _build_function_usage_map(model: SemanticModel) -> dict:
+    usage: dict = {}
+    for t in model.tables:
+        for m in t.measures:
+            for fn in model.functions:
+                if re.search(
+                    r"(?:'" + re.escape(fn.name) + r"'|\b" + re.escape(fn.name) + r")\s*\(",
+                    m.dax_expression,
+                ):
+                    usage.setdefault(fn.name, []).append((m.name, t.name))
+    return usage
+
+
+def _functions_section(model: SemanticModel, include_dax: bool) -> str:
+    lines = ["## 4. Functions", ""]
+
+    if not model.functions:
+        lines += ["*No user-defined functions defined.*", "", "---", ""]
+        return "\n".join(lines)
+
+    usage_map = _build_function_usage_map(model)
+    lines += ["| Function | Used By | Description |", "|---|---|---|"]
+    for fn in model.functions:
+        used_by = usage_map.get(fn.name)
+        used_cell = (
+            ", ".join(f"`{mname}` ({tbl})" for mname, tbl in used_by) if used_by else "-"
+        )
+        desc = fn.description or "-"
+        lines.append(_md_row(f"`{fn.name}`", used_cell, desc))
+    lines.append("")
+    if include_dax:
+        for fn in model.functions:
+            if not fn.expression.strip():
+                continue
+            lines += [f"**`{fn.name}`**", "```dax", fn.expression, "```", ""]
+
+    lines += ["---", ""]
+    return "\n".join(lines)
+
+
 def _relationships_section(model: SemanticModel) -> str:
-    lines = ["## 4. Relationships", ""]
+    lines = ["## 5. Relationships", ""]
 
     visible = [
         r for r in model.relationships
@@ -629,7 +689,7 @@ def _relationships_section(model: SemanticModel) -> str:
         ]
         for r in active:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '-'} | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
+                _md_row(f"`{r.from_table}`", f"`{r.from_column}`", f"`{r.to_table}`", f"`{r.to_column}`", r.cardinality or "-", r.cross_filtering_behavior, r.security_filtering_behavior)
             )
         lines.append("")
 
@@ -641,7 +701,7 @@ def _relationships_section(model: SemanticModel) -> str:
         ]
         for r in inactive:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
+                _md_row(f"`{r.from_table}`", f"`{r.from_column}`", f"`{r.to_table}`", f"`{r.to_column}`", r.cross_filtering_behavior, r.security_filtering_behavior)
             )
         lines.append("")
 
@@ -822,7 +882,7 @@ def _hidden_reference_note(refs: list[tuple[str, str]]) -> str:
 
 
 def _security_roles_section(model: SemanticModel) -> str:
-    lines = ["## 5. Security Roles", ""]
+    lines = ["## 6. Security Roles", ""]
 
     if not model.security_roles:
         lines += ["*No security roles defined.*", "", "---", ""]
@@ -832,19 +892,19 @@ def _security_roles_section(model: SemanticModel) -> str:
     for role in model.security_roles:
         if not role.table_filters:
             dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
-            lines.append(f"| `{role.name}` | - | - | {dynamic_label} |")
+            lines.append(_md_row(f"`{role.name}`", "-", "-", dynamic_label))
         else:
             for i, tf in enumerate(role.table_filters):
                 role_cell     = f"`{role.name}`" if i == 0 else ""
                 dynamic_label = (f"Yes ({role.dynamic_function})" if role.is_dynamic else "No") if i == 0 else ""
-                lines.append(f"| {role_cell} | `{tf.table}` | `{tf.dax_filter}` | {dynamic_label} |")
+                lines.append(_md_row(role_cell, f"`{tf.table}`", f"`{tf.dax_filter}`", dynamic_label))
 
     lines += ["", "---", ""]
     return "\n".join(lines)
 
 
 def _m_parameters_section(model: SemanticModel) -> str:
-    lines = ["## 6. M Parameters", ""]
+    lines = ["## 7. M Parameters", ""]
 
     if not model.m_parameters:
         lines += ["*No M parameters defined.*", "", "---", ""]
@@ -856,7 +916,7 @@ def _m_parameters_section(model: SemanticModel) -> str:
         used_by   = usage_map.get(p.name, [])
         used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "-"
         val_cell  = f"`{p.value}`" if p.value.strip() else "-"
-        lines.append(f"| `{p.name}` | {p.param_type} | {val_cell} | {used_cell} |")
+        lines.append(_md_row(f"`{p.name}`", p.param_type, val_cell, used_cell))
 
     lines += [
         "",
@@ -883,7 +943,7 @@ def _unresolved_section(resolved: dict[str, ResolvedSource]) -> str:
         "|---|---|",
     ]
     for rs in unresolved:
-        lines.append(f"| `{rs.expression_name}` | {rs.unresolved_reason} |")
+        lines.append(_md_row(f"`{rs.expression_name}`", rs.unresolved_reason))
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -911,20 +971,20 @@ def _statistics_section(
     hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
 
     lines = [
-        "## 7. Model Statistics",
+        "## 8. Model Statistics",
         "",
         "| Category | Count | Items |",
         "|---|---|---|",
-        f"| Loaded Tables | {len(loaded_tables)} | {names(loaded_tables)} |",
-        f"| Hidden Tables | {len(hidden_tables)} | {names(hidden_tables)} |",
-        f"| Calculated Tables | {len(calc)} | {names(calc)} |",
-        f"| Field Parameters | {len(fp)} | {names(fp)} |",
-        f"| Measures-Only Tables | {len(mo)} | {names(mo)} |",
-        f"| Calculation Groups | {len(cg)} | {names(cg)} |",
-        f"| Not Loaded | {len(staging_tables)} | {names(staging_tables)} |",
-        f"| Relationships | {len(visible_rels)} | - |",
-        f"| Measures | {len(all_meas)} | - |",
-        f"| Calculated Columns | {len(calc_cols)} | - |",
+        _md_row("Loaded Tables", len(loaded_tables), names(loaded_tables)),
+        _md_row("Hidden Tables", len(hidden_tables), names(hidden_tables)),
+        _md_row("Calculated Tables", len(calc), names(calc)),
+        _md_row("Field Parameters", len(fp), names(fp)),
+        _md_row("Measures-Only Tables", len(mo), names(mo)),
+        _md_row("Calculation Groups", len(cg), names(cg)),
+        _md_row("Not Loaded", len(staging_tables), names(staging_tables)),
+        _md_row("Relationships", len(visible_rels), "-"),
+        _md_row("Measures", len(all_meas), "-"),
+        _md_row("Calculated Columns", len(calc_cols), "-"),
         "",
         "---",
         "",
@@ -974,21 +1034,23 @@ pre code { background: none; color: inherit; padding: 0; }
 """
 
 
-def _esc(text: str) -> str:
+class _RawHtml(str):
+    """A string that is already safe, fully-built HTML. _html_table and
+    _html_fmt_inventory_table skip escaping for cells of this type."""
+    pass
+
+
+def _esc(text) -> _RawHtml:
+    if isinstance(text, _RawHtml):
+        return text
     a = chr(38)  # &
-    return (
+    return _RawHtml(
         str(text)
         .replace(chr(38), a + "amp;")
         .replace(chr(60), a + "lt;")
         .replace(chr(62), a + "gt;")
         .replace(chr(34), a + "quot;")
     )
-
-
-class _RawHtml(str):
-    """A string that is already safe, fully-built HTML. _html_table and
-    _html_fmt_inventory_table skip escaping for cells of this type."""
-    pass
 
 
 def _html_table(headers: list[str], rows: list[list[str]], css_class: str = "") -> str:
@@ -1049,6 +1111,9 @@ def generate_html(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
+    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
+    model = replace(model, tables=tables)
+
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded  = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
@@ -1078,14 +1143,15 @@ def generate_html(
     body.append(_html_table(["Property", "Value"], overview_rows, "overview-table"))
 
     body.append('<h2>1. Data Sources</h2>')
-    body.append(f'<p>{_esc(_model_summary(loaded_visible, staging, support, model))}</p>')
-    if loaded_visible:
+    body.append(f'<p>{_esc(_model_summary(loaded, staging, support, model))}</p>')
+    if loaded:
         rows = []
-        for t in loaded_visible:
+        for t in loaded:
             rs = get_table_source(t, resolved)
             src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
-            rows.append([_code(t.name), _esc(src_type), _esc(label)])
+            name_cell = _RawHtml(f"{_code(t.name)} (hidden)") if t.is_hidden else _code(t.name)
+            rows.append([name_cell, _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
     if support:
         body.append('<h3>Support Tables</h3>')
@@ -1117,11 +1183,14 @@ def generate_html(
         body.append('<p class="empty">None.</p>')
 
     body.append('<h2>2. Table Details</h2>')
-    calc_groups = [t for t in support if t.table_type == "calc_group"]
+    detail_support = [
+        t for t in support
+        if t.table_type in ("calc_group", "calculated", "field_parameter")
+    ]
     if show_hidden:
-        table_detail_tables = loaded + calc_groups
+        table_detail_tables = loaded + detail_support
     else:
-        table_detail_tables = loaded_visible + calc_groups
+        table_detail_tables = loaded_visible + detail_support
     for t in table_detail_tables:
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
@@ -1271,7 +1340,28 @@ def generate_html(
             "Column Format Strings", col_sorted, col_total, col_unique, "Columns"
         ))
 
-    body.append('<h2>4. Relationships</h2>')
+    body.append('<h2>4. Functions</h2>')
+    if not model.functions:
+        body.append('<p class="empty">No user-defined functions defined.</p>')
+    else:
+        fn_usage = _build_function_usage_map(model)
+        fn_rows = []
+        for fn in model.functions:
+            used_by = fn_usage.get(fn.name)
+            used_cell = (
+                _RawHtml(", ".join(_code(mname) + " (" + _esc(tbl) + ")" for mname, tbl in used_by))
+                if used_by else "-"
+            )
+            fn_rows.append([_code(fn.name), used_cell, _esc(fn.description) if fn.description else "-"])
+        body.append(_html_table(["Function", "Used By", "Description"], fn_rows))
+        if include_dax:
+            for fn in model.functions:
+                if not fn.expression.strip():
+                    continue
+                body.append(f'<h4>{_code(fn.name)}</h4>')
+                body.append(_pre(fn.expression))
+
+    body.append('<h2>5. Relationships</h2>')
     visible_rels = [
         r for r in model.relationships
         if not _is_auto_date_table(r.from_table) and not _is_auto_date_table(r.to_table)
@@ -1297,23 +1387,23 @@ def generate_html(
                   _esc(r.cross_filtering_behavior), _esc(r.security_filtering_behavior)]
                  for r in inactive]))
 
-    body.append('<h2>5. Security Roles</h2>')
+    body.append('<h2>6. Security Roles</h2>')
     if not model.security_roles:
         body.append('<p class="empty">No security roles defined.</p>')
     else:
         rows = []
         for role in model.security_roles:
             if not role.table_filters:
-                dyn = f"Yes ({_esc(role.dynamic_function)})" if role.is_dynamic else "No"
+                dyn = _RawHtml(f"Yes ({_esc(role.dynamic_function)})") if role.is_dynamic else "No"
                 rows.append([_code(role.name), "-", "-", dyn])
             else:
                 for i, tf in enumerate(role.table_filters):
                     role_cell = _code(role.name) if i == 0 else ""
-                    dyn = (f"Yes ({_esc(role.dynamic_function)})" if role.is_dynamic else "No") if i == 0 else ""
+                    dyn = (_RawHtml(f"Yes ({_esc(role.dynamic_function)})") if role.is_dynamic else "No") if i == 0 else ""
                     rows.append([role_cell, _code(tf.table), _code(tf.dax_filter), dyn])
         body.append(_html_table(["Role", "Table", "Filter", "Dynamic"], rows))
 
-    body.append('<h2>6. M Parameters</h2>')
+    body.append('<h2>7. M Parameters</h2>')
     if not model.m_parameters:
         body.append('<p class="empty">No M parameters defined.</p>')
     else:
@@ -1331,7 +1421,7 @@ def generate_html(
         body.append(_html_table(["Expression", "Reason"],
             [[_code(rs.expression_name), _esc(rs.unresolved_reason)] for rs in unresolved]))
 
-    body.append('<h2>7. Model Statistics</h2>')
+    body.append('<h2>8. Model Statistics</h2>')
     calc      = [t for t in support if t.table_type == "calculated"]
     fp        = [t for t in support if t.table_type == "field_parameter"]
     mo        = [t for t in support if t.table_type == "measures_only"]
@@ -1379,6 +1469,9 @@ def generate_readme(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
+    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
+    model = replace(model, tables=tables)
+
     support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
     loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
     support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
@@ -1392,9 +1485,10 @@ def generate_readme(
     sections = [
         f"# {report_name}\n",
         _overview_section(config, model),
-        _data_sources_section(loaded_visible, staging, support, resolved, model),
+        _data_sources_section(loaded, staging, support, resolved, model),
         _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
         _measures_section(model.tables, include_dax, show_hidden),
+        _functions_section(model, include_dax),
         _relationships_section(model),
         _security_roles_section(model),
         _m_parameters_section(model),

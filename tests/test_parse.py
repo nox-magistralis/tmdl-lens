@@ -67,6 +67,15 @@ def test_sample_function_expression(sample_model):
     assert fn.source_type == "function_def"
 
 
+def test_user_functions(sample_model):
+    assert len(sample_model.functions) == 2
+    by_name = {f.name: f for f in sample_model.functions}
+    assert by_name["AddTax"].expression == "(amount: number, rate: number) => amount * (1 + rate)"
+    assert by_name["AddTax"].description == "Adds sales tax to a net amount using the given rate."
+    assert "IF(" in by_name["SafeStockThreshold"].expression
+    assert by_name["SafeStockThreshold"].description == "Returns the reorder threshold for a product category."
+
+
 def test_relationships(sample_model):
     assert len(sample_model.relationships) == 3
     pairs = {
@@ -116,9 +125,9 @@ def test_resolved_sources_tiers(sample_resolved):
     tier1 = sum(1 for rs in sample_resolved.values() if rs.resolution_tier == 1)
     tier2 = sum(1 for rs in sample_resolved.values() if rs.resolution_tier == 2)
     tier3 = sum(1 for rs in sample_resolved.values() if rs.resolution_tier == 3)
-    assert tier1 == 18
+    assert tier1 == 19
     assert tier2 == 1
-    assert tier3 == 2
+    assert tier3 == 1
 
 
 def test_resolved_sql_source(sample_resolved):
@@ -138,10 +147,18 @@ def test_resolved_derived_chain(sample_resolved):
 
 def test_tier3_are_unresolved(sample_resolved):
     tier3 = [rs for rs in sample_resolved.values() if rs.resolution_tier == 3]
-    assert len(tier3) == 2
+    assert len(tier3) == 1
     assert all(rs.unresolved for rs in tier3)
     names = sorted(rs.expression_name for rs in tier3)
-    assert names == ["source-dynamic", "source-via-custom-function"]
+    assert names == ["source-via-custom-function"]
+
+
+def test_resolved_dynamic_web_source(sample_resolved):
+    rs = sample_resolved["source-dynamic"]
+    assert rs.source_type == "connector"
+    assert rs.resolution_tier == 1
+    assert "Web API" in rs.label
+    assert rs.url == "[param:FullUrl]"
 
 
 def test_security_roles(sample_model):

@@ -17,6 +17,7 @@ Each generated README includes:
 - **Data Sources** - connector type and resolved source detail for every query. 30+ Power Query connector functions have dedicated labels (SQL, Dataflows, SharePoint, Excel, OData, Azure Blob/Table/Data Lake storage, Databricks, Snowflake, Salesforce, Oracle, PostgreSQL, SAP HANA, and more); any connector without a dedicated label is still auto-detected from the query and shown with its namespace and function for manual labelling.
 - **Table Details** - table type, source detail, and column list
 - **Measures** - full DAX (optional), display folder, and format string
+- **Functions** - DAX user-defined functions with description, where they are used, and full DAX (optional)
 - **Relationships** - cardinality, cross-filter direction, and active/inactive state
 - **M Parameters** - current value and which source expressions reference each parameter
 - **Security Roles** - static and dynamic RLS rules per table, flagged by type

@@ -1,0 +1,6 @@
+role 'Area Supervisors'
+	modelPermission: read
+
+	tablePermission 'fact-sales' = [region] = "South"
+
+	tablePermission 'dim-product' = [category] = "Hardware"

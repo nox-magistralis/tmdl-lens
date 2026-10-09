@@ -248,7 +248,7 @@ expression source-via-custom-function =
 	annotation PBI_ResultType = Table
 
 
-// ── PATTERN 16: Dynamic M - string concatenation (Tier 3 - unresolvable) ─────
+// ── PATTERN 16: Web API source, URL built at runtime ─────
 expression source-dynamic =
 		let
 		    BaseUrl = "https://api.example.com/v1/",

@@ -79,6 +79,13 @@ class CalculationItem:
 
 
 @dataclass
+class UserFunction:
+    name: str
+    expression: str = ""
+    description: str = ""
+
+
+@dataclass
 class MParameter:
     """An M query parameter (IsParameterQuery = true)."""
     name: str
@@ -187,6 +194,7 @@ class SemanticModel:
     source_expressions: list = field(default_factory=list)
     m_parameters: list = field(default_factory=list)
     security_roles: list = field(default_factory=list)
+    functions: list = field(default_factory=list)
     model_culture: str = ""
     model_data_source_version: str = ""
     database_compatibility_level: str = ""
@@ -199,6 +207,17 @@ _TRANSFORM_FNS = {
     "Table.MergeQueries",
     "Table.Join",
 }
+
+_STDLIB_NAMESPACES = frozenset({
+    "Table", "List", "Text", "Number", "Date", "DateTime", "DateTimeZone", "Time",
+    "Duration", "Record", "Json", "Binary", "BinaryFormat", "Splitter", "Combiner",
+    "Replacer", "Value", "Type", "Uri", "Logical", "Character", "Expression",
+    "Function", "Byte", "Single", "Double", "Decimal", "Currency", "Percentage",
+    "Lines", "Comparer", "Culture", "Diagnostics", "Error", "Guid", "Order",
+    "Occurrence", "RelativePosition", "Precision", "RoundingMode", "JoinKind",
+    "JoinAlgorithm", "MissingField", "QuoteStyle", "ExtraValues", "Compression",
+    "Cube", "Variable", "Action", "Embedded",
+})
 
 
 
@@ -841,21 +860,15 @@ def _classify_m_content(content: str, table_name: str, result_type: str = "") ->
 
     # 4. Generic connector detection - primary path for external connectors
     #    Matches any Namespace.Function( call, excluding M stdlib and transforms
-    generic = re.search(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean)
-    if generic:
-        fn = generic.group(1)
-        if fn not in _TRANSFORM_FNS and not fn.startswith("Table.") and not fn.startswith("List.") \
-                and not fn.startswith("Text.") and not fn.startswith("Number.") \
-                and not fn.startswith("Date.") and not fn.startswith("DateTime.") \
-                and not fn.startswith("Record.") and not fn.startswith("Json.") \
-                and not fn.startswith("Binary.") and not fn.startswith("Splitter.") \
-                and not fn.startswith("Combiner.") and not fn.startswith("Replacer."):
-            namespace, function = fn.split(".", 1)
-            expr.source_type = "connector"
-            expr.connector_namespace = namespace
-            expr.connector_function = function
-            _extract_connector_details(expr, clean, namespace, function)
-            return expr
+    for call in re.finditer(r'\b([A-Z][A-Za-z]+\.[A-Z][A-Za-z]+)\s*\(', clean):
+        namespace, function = call.group(1).split(".", 1)
+        if namespace in _STDLIB_NAMESPACES or f"{namespace}.{function}" in _TRANSFORM_FNS:
+            continue
+        expr.source_type = "connector"
+        expr.connector_namespace = namespace
+        expr.connector_function = function
+        _extract_connector_details(expr, clean, namespace, function)
+        return expr
 
     # 5a. Derived - references a shared expression: Source = #"name"
     ref_quoted = re.search(r'\bSource\s*=\s*#"([^"]+)"', clean)
@@ -935,6 +948,51 @@ def _extract_string_or_param_arg(clean: str, pattern_quoted: str, pattern_bare: 
     return None
 
 
+def _native_query_from_value_native_query(clean: str) -> str:
+    start = re.search(r'Value\.NativeQuery\s*\(', clean)
+    if not start:
+        return ""
+    i = start.end()
+    depth = 1
+    args: list[str] = []
+    current: list[str] = []
+    in_string = False
+    while i < len(clean) and depth > 0:
+        ch = clean[i]
+        if in_string:
+            if ch == '"':
+                if clean[i:i + 2] == '""':
+                    current.append('""')
+                    i += 2
+                    continue
+                in_string = False
+            current.append(ch)
+        elif ch == '"':
+            in_string = True
+            current.append(ch)
+        elif ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                args.append("".join(current))
+                break
+            current.append(ch)
+        elif ch == "," and depth == 1:
+            args.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    if len(args) < 2:
+        return ""
+    second = args[1].strip()
+    if len(second) >= 2 and second[0] == second[-1] == '"':
+        return second[1:-1].replace('""', '"')
+    return ""
+
+
 def _extract_connector_details(expr: SourceExpression, clean: str, namespace: str, function: str) -> None:
     """Populates detail fields on expr based on namespace/function. Mutates in place."""
 
@@ -961,10 +1019,10 @@ def _extract_connector_details(expr: SourceExpression, clean: str, namespace: st
             expr.is_native_query = True
             expr.native_query    = native.group(1)
         else:
-            native_vq = re.search(r'Value\.NativeQuery\s*\([^,]+,\s*"([^"]+)"', clean)
+            native_vq = _native_query_from_value_native_query(clean)
             if native_vq:
                 expr.is_native_query = True
-                expr.native_query    = native_vq.group(1)
+                expr.native_query    = native_vq
             else:
                 for nav in re.finditer(r'\{?\[Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\]?\}\[Data\]', clean):
                     schema_val = nav.group(1)
@@ -1364,15 +1422,43 @@ def _parse_roles(filepath: str) -> list:
             continue
 
         lines = block.split("\n")
-        children, _ = _parse_tree(lines, 1, 0)
-        root = TmdlNode(key="", children=children)
 
         filters = []
-        for child in root.children:
-            if child.key.startswith("tablePermission"):
-                # key = "tablePermission '<table>'" - extract table name from key
-                table_name = _unquote(child.key[len("tablePermission"):])
-                filters.append(TableFilter(table=table_name, dax_filter=child.value))
+        i = 1
+        while i < len(lines):
+            stripped = lines[i].strip()
+            perm_m = re.match(
+                r"tablePermission\s+('(?:[^']|'')+'|\"[^\"]+\"|[^\s=]+)\s*(?:=(.*))?$",
+                stripped,
+            )
+            if not perm_m:
+                i += 1
+                continue
+            table_name = _unquote(perm_m.group(1))
+            value_part = (perm_m.group(2) or "").strip()
+            if value_part.startswith("```"):
+                dax, i = _read_fenced_value(lines, i + 1)
+                filters.append(TableFilter(table=table_name, dax_filter=dax))
+                continue
+            if value_part:
+                filters.append(TableFilter(table=table_name, dax_filter=value_part))
+                i += 1
+                continue
+            perm_indent = len(lines[i]) - len(lines[i].lstrip("\t "))
+            collected = []
+            j = i + 1
+            while j < len(lines):
+                line = lines[j]
+                if not line.strip():
+                    j += 1
+                    continue
+                indent = len(line) - len(line.lstrip("\t "))
+                if indent <= perm_indent:
+                    break
+                collected.append(line)
+                j += 1
+            filters.append(TableFilter(table=table_name, dax_filter=_dedent("\n".join(collected))))
+            i = j
 
         is_dynamic = False
         dynamic_fn = ""
@@ -1390,6 +1476,50 @@ def _parse_roles(filepath: str) -> list:
         ))
 
     return roles
+
+
+def _parse_functions(filepath: str) -> list:
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    comment_map = _extract_leading_comments(content)
+    functions = []
+    for block in _extract_blocks(content, "function "):
+        lines = block.split("\n")
+        header = lines[0].strip()
+        m = re.match(
+            r"function\s+(?:'((?:[^']|'')+)'|\"([^\"]+)\"|([^\s'\"=]+))\s*=(?:\s*(.*))?$",
+            header,
+        )
+        if not m:
+            continue
+        name = (m.group(1) or m.group(2) or m.group(3)).strip()
+        name = name.replace("''", "'")
+        if name.startswith("//"):
+            continue
+
+        inline = (m.group(4) or "").strip()
+        if inline.startswith("```"):
+            expression, _next = _read_fenced_value(lines, 1)
+        elif inline:
+            expression = inline
+        else:
+            dax_lines = []
+            for line in lines[1:]:
+                s = line.strip()
+                if re.match(r"(formatString|displayFolder|lineageTag|isHidden|annotation|description):", s) or s == "isHidden":
+                    break
+                dax_lines.append(line)
+            expression = "\n".join(dax_lines).strip().rstrip("`").strip()
+
+        description = comment_map.get(header, "")
+        functions.append(UserFunction(
+            name=name,
+            expression=expression,
+            description=description,
+        ))
+
+    return functions
 
 
 # ---------------------------------------------------------------------------
@@ -1554,9 +1684,20 @@ def parse_semantic_model(model_folder: str, report_name: str) -> SemanticModel:
     if os.path.exists(relationships_file):
         model.relationships = _parse_relationships(relationships_file)
 
-    roles_file = os.path.join(definition_path, "roles.tmdl")
-    if os.path.exists(roles_file):
-        model.security_roles = _parse_roles(roles_file)
+    roles_dir = os.path.join(definition_path, "roles")
+    security_roles: list = []
+    if os.path.isdir(roles_dir):
+        for filename in sorted(os.listdir(roles_dir)):
+            if filename.endswith(".tmdl"):
+                security_roles.extend(_parse_roles(os.path.join(roles_dir, filename)))
+    legacy_roles_file = os.path.join(definition_path, "roles.tmdl")
+    if os.path.exists(legacy_roles_file):
+        security_roles.extend(_parse_roles(legacy_roles_file))
+    model.security_roles = security_roles
+
+    functions_file = os.path.join(definition_path, "functions.tmdl")
+    if os.path.exists(functions_file):
+        model.functions = _parse_functions(functions_file)
 
     model.model_culture, model.model_data_source_version, model.database_compatibility_level = \
         _parse_model_database(definition_path)
