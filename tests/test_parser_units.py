@@ -10,6 +10,7 @@ from tmdl_lens.tmdl_parser import (
     _parse_calculation_items,
     _parse_column,
     _parse_expressions,
+    _parse_functions,
     _parse_measure,
     _parse_relationships,
     _parse_roles,
@@ -765,3 +766,65 @@ def test_parse_semantic_model_roles_none(tmp_path):
     (tmp_path / "definition").mkdir()
     model = parse_semantic_model(str(tmp_path), "Test")
     assert model.security_roles == []
+
+
+def test_parse_functions_inline(tmp_path):
+    content = (
+        "/// Adds sales tax to a net amount using the given rate.\n"
+        "function AddTax = (amount: number, rate: number) => amount * (1 + rate)\n"
+    )
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "AddTax"
+    assert functions[0].expression == "(amount: number, rate: number) => amount * (1 + rate)"
+    assert functions[0].description == "Adds sales tax to a net amount using the given rate."
+
+
+def test_parse_functions_multiline_with_properties(tmp_path):
+    content = (
+        "function SafeStock =\n"
+        "\t\t(category: string) =>\n"
+        "\t\tIF(category == \"Hardware\", 50, 20)\n"
+        "\tlineageTag: abc-123\n"
+    )
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "SafeStock"
+    assert functions[0].expression == "(category: string) =>\n\t\tIF(category == \"Hardware\", 50, 20)"
+
+
+def test_parse_functions_fenced(tmp_path):
+    content = (
+        "function Fenced = ```\n"
+        "\tVAR x = 1\n"
+        "\tRETURN x\n"
+        "\t```\n"
+    )
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "Fenced"
+    assert functions[0].expression == "VAR x = 1\nRETURN x"
+
+
+def test_parse_functions_quoted_escaped_name(tmp_path):
+    content = "function 'Rep''s Func' = (x as any) => x\n"
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert len(functions) == 1
+    assert functions[0].name == "Rep's Func"
+    assert functions[0].expression == "(x as any) => x"
+
+
+def test_parse_functions_empty_file(tmp_path):
+    content = "// no functions here\n"
+    path = tmp_path / "functions.tmdl"
+    path.write_text(content, encoding="utf-8")
+    functions = _parse_functions(str(path))
+    assert functions == []

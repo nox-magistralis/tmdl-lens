@@ -79,6 +79,13 @@ class CalculationItem:
 
 
 @dataclass
+class UserFunction:
+    name: str
+    expression: str = ""
+    description: str = ""
+
+
+@dataclass
 class MParameter:
     """An M query parameter (IsParameterQuery = true)."""
     name: str
@@ -187,6 +194,7 @@ class SemanticModel:
     source_expressions: list = field(default_factory=list)
     m_parameters: list = field(default_factory=list)
     security_roles: list = field(default_factory=list)
+    functions: list = field(default_factory=list)
     model_culture: str = ""
     model_data_source_version: str = ""
     database_compatibility_level: str = ""
@@ -1470,6 +1478,50 @@ def _parse_roles(filepath: str) -> list:
     return roles
 
 
+def _parse_functions(filepath: str) -> list:
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    comment_map = _extract_leading_comments(content)
+    functions = []
+    for block in _extract_blocks(content, "function "):
+        lines = block.split("\n")
+        header = lines[0].strip()
+        m = re.match(
+            r"function\s+(?:'((?:[^']|'')+)'|\"([^\"]+)\"|([^\s'\"=]+))\s*=(?:\s*(.*))?$",
+            header,
+        )
+        if not m:
+            continue
+        name = (m.group(1) or m.group(2) or m.group(3)).strip()
+        name = name.replace("''", "'")
+        if name.startswith("//"):
+            continue
+
+        inline = (m.group(4) or "").strip()
+        if inline.startswith("```"):
+            expression, _next = _read_fenced_value(lines, 1)
+        elif inline:
+            expression = inline
+        else:
+            dax_lines = []
+            for line in lines[1:]:
+                s = line.strip()
+                if re.match(r"(formatString|displayFolder|lineageTag|isHidden|annotation|description):", s) or s == "isHidden":
+                    break
+                dax_lines.append(line)
+            expression = "\n".join(dax_lines).strip().rstrip("`").strip()
+
+        description = comment_map.get(header, "")
+        functions.append(UserFunction(
+            name=name,
+            expression=expression,
+            description=description,
+        ))
+
+    return functions
+
+
 # ---------------------------------------------------------------------------
 # Model / database level parser
 # ---------------------------------------------------------------------------
@@ -1642,6 +1694,10 @@ def parse_semantic_model(model_folder: str, report_name: str) -> SemanticModel:
     if os.path.exists(legacy_roles_file):
         security_roles.extend(_parse_roles(legacy_roles_file))
     model.security_roles = security_roles
+
+    functions_file = os.path.join(definition_path, "functions.tmdl")
+    if os.path.exists(functions_file):
+        model.functions = _parse_functions(functions_file)
 
     model.model_culture, model.model_data_source_version, model.database_compatibility_level = \
         _parse_model_database(definition_path)

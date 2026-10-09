@@ -270,7 +270,27 @@ COUNTROWS('helper-order-lookup')
 
 ---
 
-## 4. Relationships
+## 4. Functions
+
+| Function | Used By | Description |
+|---|---|---|
+| `AddTax` | - | Adds sales tax to a net amount using the given rate. |
+| `SafeStockThreshold` | - | Returns the reorder threshold for a product category. |
+
+**`AddTax`**
+```dax
+(amount: number, rate: number) => amount * (1 + rate)
+```
+
+**`SafeStockThreshold`**
+```dax
+(category: string) =>
+		IF(category == "Hardware", 50, 20)
+```
+
+---
+
+## 5. Relationships
 
 | From Table | From Column | To Table | To Column | Cardinality | Cross Filter | Security Filter |
 |---|---|---|---|---|---|---|
@@ -285,7 +305,7 @@ COUNTROWS('helper-order-lookup')
 
 ---
 
-## 5. Security Roles
+## 6. Security Roles
 
 | Role | Table | Filter | Dynamic |
 |---|---|---|---|
@@ -298,7 +318,7 @@ COUNTROWS('helper-order-lookup')
 
 ---
 
-## 6. M Parameters
+## 7. M Parameters
 
 | Parameter | Type | Value | Used By |
 |---|---|---|---|
@@ -321,7 +341,7 @@ Use tmdl-lens to provide a manual label for each.
 
 ---
 
-## 7. Model Statistics
+## 8. Model Statistics
 
 | Category | Count | Items |
 |---|---|---|

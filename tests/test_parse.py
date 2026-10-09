@@ -67,6 +67,15 @@ def test_sample_function_expression(sample_model):
     assert fn.source_type == "function_def"
 
 
+def test_user_functions(sample_model):
+    assert len(sample_model.functions) == 2
+    by_name = {f.name: f for f in sample_model.functions}
+    assert by_name["AddTax"].expression == "(amount: number, rate: number) => amount * (1 + rate)"
+    assert by_name["AddTax"].description == "Adds sales tax to a net amount using the given rate."
+    assert "IF(" in by_name["SafeStockThreshold"].expression
+    assert by_name["SafeStockThreshold"].description == "Returns the reorder threshold for a product category."
+
+
 def test_relationships(sample_model):
     assert len(sample_model.relationships) == 3
     pairs = {

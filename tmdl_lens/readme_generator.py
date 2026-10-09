@@ -607,8 +607,48 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
     return "\n".join(lines)
 
 
+def _build_function_usage_map(model: SemanticModel) -> dict:
+    usage: dict = {}
+    for t in model.tables:
+        for m in t.measures:
+            for fn in model.functions:
+                if re.search(
+                    r"(?:'" + re.escape(fn.name) + r"'|\b" + re.escape(fn.name) + r")\s*\(",
+                    m.dax_expression,
+                ):
+                    usage.setdefault(fn.name, []).append((m.name, t.name))
+    return usage
+
+
+def _functions_section(model: SemanticModel, include_dax: bool) -> str:
+    lines = ["## 4. Functions", ""]
+
+    if not model.functions:
+        lines += ["*No user-defined functions defined.*", "", "---", ""]
+        return "\n".join(lines)
+
+    usage_map = _build_function_usage_map(model)
+    lines += ["| Function | Used By | Description |", "|---|---|---|"]
+    for fn in model.functions:
+        used_by = usage_map.get(fn.name)
+        used_cell = (
+            ", ".join(f"`{mname}` ({tbl})" for mname, tbl in used_by) if used_by else "-"
+        )
+        desc = fn.description or "-"
+        lines.append(f"| `{fn.name}` | {used_cell} | {desc} |")
+    lines.append("")
+    if include_dax:
+        for fn in model.functions:
+            if not fn.expression.strip():
+                continue
+            lines += [f"**`{fn.name}`**", "```dax", fn.expression, "```", ""]
+
+    lines += ["---", ""]
+    return "\n".join(lines)
+
+
 def _relationships_section(model: SemanticModel) -> str:
-    lines = ["## 4. Relationships", ""]
+    lines = ["## 5. Relationships", ""]
 
     visible = [
         r for r in model.relationships
@@ -822,7 +862,7 @@ def _hidden_reference_note(refs: list[tuple[str, str]]) -> str:
 
 
 def _security_roles_section(model: SemanticModel) -> str:
-    lines = ["## 5. Security Roles", ""]
+    lines = ["## 6. Security Roles", ""]
 
     if not model.security_roles:
         lines += ["*No security roles defined.*", "", "---", ""]
@@ -844,7 +884,7 @@ def _security_roles_section(model: SemanticModel) -> str:
 
 
 def _m_parameters_section(model: SemanticModel) -> str:
-    lines = ["## 6. M Parameters", ""]
+    lines = ["## 7. M Parameters", ""]
 
     if not model.m_parameters:
         lines += ["*No M parameters defined.*", "", "---", ""]
@@ -911,7 +951,7 @@ def _statistics_section(
     hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
 
     lines = [
-        "## 7. Model Statistics",
+        "## 8. Model Statistics",
         "",
         "| Category | Count | Items |",
         "|---|---|---|",
@@ -1271,7 +1311,28 @@ def generate_html(
             "Column Format Strings", col_sorted, col_total, col_unique, "Columns"
         ))
 
-    body.append('<h2>4. Relationships</h2>')
+    body.append('<h2>4. Functions</h2>')
+    if not model.functions:
+        body.append('<p class="empty">No user-defined functions defined.</p>')
+    else:
+        fn_usage = _build_function_usage_map(model)
+        fn_rows = []
+        for fn in model.functions:
+            used_by = fn_usage.get(fn.name)
+            used_cell = (
+                _RawHtml(", ".join(_code(mname) + " (" + _esc(tbl) + ")" for mname, tbl in used_by))
+                if used_by else "-"
+            )
+            fn_rows.append([_code(fn.name), used_cell, _esc(fn.description) if fn.description else "-"])
+        body.append(_html_table(["Function", "Used By", "Description"], fn_rows))
+        if include_dax:
+            for fn in model.functions:
+                if not fn.expression.strip():
+                    continue
+                body.append(f'<h4>{_code(fn.name)}</h4>')
+                body.append(_pre(fn.expression))
+
+    body.append('<h2>5. Relationships</h2>')
     visible_rels = [
         r for r in model.relationships
         if not _is_auto_date_table(r.from_table) and not _is_auto_date_table(r.to_table)
@@ -1297,7 +1358,7 @@ def generate_html(
                   _esc(r.cross_filtering_behavior), _esc(r.security_filtering_behavior)]
                  for r in inactive]))
 
-    body.append('<h2>5. Security Roles</h2>')
+    body.append('<h2>6. Security Roles</h2>')
     if not model.security_roles:
         body.append('<p class="empty">No security roles defined.</p>')
     else:
@@ -1313,7 +1374,7 @@ def generate_html(
                     rows.append([role_cell, _code(tf.table), _code(tf.dax_filter), dyn])
         body.append(_html_table(["Role", "Table", "Filter", "Dynamic"], rows))
 
-    body.append('<h2>6. M Parameters</h2>')
+    body.append('<h2>7. M Parameters</h2>')
     if not model.m_parameters:
         body.append('<p class="empty">No M parameters defined.</p>')
     else:
@@ -1331,7 +1392,7 @@ def generate_html(
         body.append(_html_table(["Expression", "Reason"],
             [[_code(rs.expression_name), _esc(rs.unresolved_reason)] for rs in unresolved]))
 
-    body.append('<h2>7. Model Statistics</h2>')
+    body.append('<h2>8. Model Statistics</h2>')
     calc      = [t for t in support if t.table_type == "calculated"]
     fp        = [t for t in support if t.table_type == "field_parameter"]
     mo        = [t for t in support if t.table_type == "measures_only"]
@@ -1395,6 +1456,7 @@ def generate_readme(
         _data_sources_section(loaded_visible, staging, support, resolved, model),
         _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
         _measures_section(model.tables, include_dax, show_hidden),
+        _functions_section(model, include_dax),
         _relationships_section(model),
         _security_roles_section(model),
         _m_parameters_section(model),
