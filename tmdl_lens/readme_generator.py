@@ -268,6 +268,104 @@ def _data_sources_section(
     return "\n".join(lines)
 
 
+def _source_detail_fields(rs: ResolvedSource) -> list:
+    fields = []
+    fields.append(("Source", _connector_type_label(rs)))
+    if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform") and rs.entity:
+        fields.append(("Entity", f"`{rs.entity}`"))
+    if rs.source_type == "connector" and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift") and rs.connector_function == "Database":
+        if rs.schema and rs.table_or_view:
+            fields.append(("Table", f"`{rs.schema}.{rs.table_or_view}`"))
+        if rs.physical_tables:
+            if len(rs.physical_tables) == 1:
+                ref = rs.physical_tables[0]
+                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                suffix = " (native query)" if ref.source == "native_query" else ""
+                fields.append(("Physical table", f"`{label}`{suffix}"))
+            else:
+                parts = []
+                for ref in rs.physical_tables:
+                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                    if ref.source == "native_query":
+                        label += " (native query)"
+                    parts.append(f"`{label}`")
+                fields.append(("Physical tables", ", ".join(parts)))
+        if rs.server:
+            fields.append(("Server", f"`{rs.server}`"))
+        if rs.database:
+            fields.append(("Database", f"`{rs.database}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana") and rs.connector_function == "Database")
+        or (rs.connector_namespace == "Snowflake" and rs.connector_function == "Databases")
+    ):
+        if rs.server:
+            fields.append(("Server", f"`{rs.server}`"))
+        if rs.database:
+            fields.append(("Database", f"`{rs.database}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Teradata" and rs.connector_function == "Database":
+        if rs.server:
+            fields.append(("Server", f"`{rs.server}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Databricks" and rs.connector_function in ("Catalogs", "Contents"):
+        if rs.server:
+            fields.append(("Host", f"`{rs.server}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Dataverse" and rs.connector_function == "Feed":
+        if rs.url:
+            fields.append(("Environment URL", f"`{rs.url}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace == "AzureDevOps" and rs.connector_function == "Contents")
+        or (rs.connector_namespace == "Dynamics365" and rs.connector_function == "FinanceAndOperations")
+        or (rs.connector_namespace in ("GoogleSheets", "QuickBooks", "GitHub") and rs.connector_function == "Contents")
+    ):
+        if rs.url:
+            fields.append(("URL", f"`{rs.url}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Salesforce" and rs.url:
+        fields.append(("URL", f"`{rs.url}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "AzureStorage":
+        if rs.account:
+            fields.append(("Account", f"`{rs.account}`"))
+        if rs.container:
+            fields.append(("Container", f"`{rs.container}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
+        fields.append(("DSN", f"`{rs.dsn}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
+        fields.append(("SharePoint URL", f"`{rs.sharepoint_url}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
+        or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
+    ) and rs.file_name:
+        fields.append(("File", f"`{rs.file_name}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
+        fields.append(("Sheet", f"`{rs.sheet_name}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace == "Web" and rs.connector_function == "Contents")
+        or (rs.connector_namespace == "OData" and rs.connector_function == "Feed")
+    ) and rs.url:
+        fields.append(("URL", f"`{rs.url}`"))
+    if rs.chain:
+        fields.append(("Chain", f"`{rs.label}`"))
+    if rs.unresolved:
+        fields.append(("⚠ Unresolved", rs.unresolved_reason))
+    if rs.physical_tables and not (
+        rs.source_type == "connector"
+        and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
+        and rs.connector_function == "Database"
+    ):
+        if len(rs.physical_tables) == 1:
+            ref = rs.physical_tables[0]
+            label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+            suffix = " (native query)" if ref.source == "native_query" else ""
+            fields.append(("Physical table", f"`{label}`{suffix}"))
+        else:
+            parts = []
+            for ref in rs.physical_tables:
+                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                if ref.source == "native_query":
+                    label += " (native query)"
+                parts.append(f"`{label}`")
+            fields.append(("Physical tables", ", ".join(parts)))
+    return fields
+
+
 def _table_detail_block(
     table: Table,
     resolved: dict[str, ResolvedSource],
@@ -282,114 +380,8 @@ def _table_detail_block(
     rs = get_table_source(table, resolved)
 
     if rs:
-        src_type_display = _connector_type_label(rs)
-        lines.append(f"**Source:** {src_type_display}  ")
-        # Dataflow entity (PowerBI / PowerPlatform)
-        if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform") and rs.entity:
-            lines.append(f"**Entity:** `{rs.entity}`  ")
-        # SQL (Sql/AzureSQL/AmazonRedshift .Database)
-        if rs.source_type == "connector" and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift") and rs.connector_function == "Database":
-            if rs.schema and rs.table_or_view:
-                lines.append(f"**Table:** `{rs.schema}.{rs.table_or_view}`  ")
-            if rs.physical_tables:
-                if len(rs.physical_tables) == 1:
-                    ref = rs.physical_tables[0]
-                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                    suffix = " (native query)" if ref.source == "native_query" else ""
-                    lines.append(f"**Physical table:** `{label}`{suffix}  ")
-                else:
-                    parts = []
-                    for ref in rs.physical_tables:
-                        label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                        if ref.source == "native_query":
-                            label += " (native query)"
-                        parts.append(f"`{label}`")
-                    lines.append(f"**Physical tables:** {', '.join(parts)}  ")
-            if rs.server:
-                lines.append(f"**Server:** `{rs.server}`  ")
-            if rs.database:
-                lines.append(f"**Database:** `{rs.database}`  ")
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana") and rs.connector_function == "Database")
-            or (rs.connector_namespace == "Snowflake" and rs.connector_function == "Databases")
-        ):
-            if rs.server:
-                lines.append(f"**Server:** `{rs.server}`  ")
-            if rs.database:
-                lines.append(f"**Database:** `{rs.database}`  ")
-        # Teradata .Database
-        if rs.source_type == "connector" and rs.connector_namespace == "Teradata" and rs.connector_function == "Database":
-            if rs.server:
-                lines.append(f"**Server:** `{rs.server}`  ")
-        # Databricks .Catalogs / .Contents
-        if rs.source_type == "connector" and rs.connector_namespace == "Databricks" and rs.connector_function in ("Catalogs", "Contents"):
-            if rs.server:
-                lines.append(f"**Host:** `{rs.server}`  ")
-        # Dataverse .Feed
-        if rs.source_type == "connector" and rs.connector_namespace == "Dataverse" and rs.connector_function == "Feed":
-            if rs.url:
-                lines.append(f"**Environment URL:** `{rs.url}`  ")
-        # AzureDevOps/Contents, Dynamics365/FinanceAndOperations, GoogleSheets/QuickBooks/GitHub/Contents
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace == "AzureDevOps" and rs.connector_function == "Contents")
-            or (rs.connector_namespace == "Dynamics365" and rs.connector_function == "FinanceAndOperations")
-            or (rs.connector_namespace in ("GoogleSheets", "QuickBooks", "GitHub") and rs.connector_function == "Contents")
-        ):
-            if rs.url:
-                lines.append(f"**URL:** `{rs.url}`  ")
-        # Salesforce Data / Reports
-        if rs.source_type == "connector" and rs.connector_namespace == "Salesforce" and rs.url:
-            lines.append(f"**URL:** `{rs.url}`  ")
-        # AzureStorage Blobs/BlobContents/Table/DataLake/DataLakeContents
-        if rs.source_type == "connector" and rs.connector_namespace == "AzureStorage":
-            if rs.account:
-                lines.append(f"**Account:** `{rs.account}`  ")
-            if rs.container:
-                lines.append(f"**Container:** `{rs.container}`  ")
-        # ODBC .DataSource
-        if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
-            lines.append(f"**DSN:** `{rs.dsn}`  ")
-        # SharePoint .Files / .Tables
-        if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
-            lines.append(f"**SharePoint URL:** `{rs.sharepoint_url}`  ")
-        # File - Excel.Workbook or Csv.Document
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
-            or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
-        ) and rs.file_name:
-            lines.append(f"**File:** `{rs.file_name}`  ")
-        # Sheet - Excel.Workbook
-        if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
-            lines.append(f"**Sheet:** `{rs.sheet_name}`  ")
-        # Web API / OData
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace == "Web" and rs.connector_function == "Contents")
-            or (rs.connector_namespace == "OData" and rs.connector_function == "Feed")
-        ) and rs.url:
-            lines.append(f"**URL:** `{rs.url}`  ")
-        if rs.chain:
-            lines.append(f"**Chain:** `{rs.label}`  ")
-        if rs.unresolved:
-            lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
-        # Fallback physical-table display - for connectors other than SQL Database
-        if rs.physical_tables and not (
-            rs.source_type == "connector"
-            and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
-            and rs.connector_function == "Database"
-        ):
-            if len(rs.physical_tables) == 1:
-                ref = rs.physical_tables[0]
-                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                suffix = " (native query)" if ref.source == "native_query" else ""
-                lines.append(f"**Physical table:** `{label}`{suffix}  ")
-            else:
-                parts = []
-                for ref in rs.physical_tables:
-                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                    if ref.source == "native_query":
-                        label += " (native query)"
-                    parts.append(f"`{label}`")
-                lines.append(f"**Physical tables:** {', '.join(parts)}  ")
+        for label, value in _source_detail_fields(rs):
+            lines.append(f"**{label}:** {value}  ")
     elif table.table_type == "calculated":
         lines.append("**Source:** Calculated (DAX)  ")
         if include_dax and table.dax_partition:
@@ -1102,6 +1094,10 @@ def _pre(text: str) -> _RawHtml:
     return _RawHtml(f"<pre><code>{_esc(text)}</code></pre>")
 
 
+def _md_value_html(value: str) -> _RawHtml:
+    return _RawHtml(re.sub(r"`([^`]*)`", r"<code>\1</code>", _esc(value)))
+
+
 def generate_html(
     model: SemanticModel,
     resolved: dict[str, ResolvedSource],
@@ -1195,9 +1191,8 @@ def generate_html(
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
         if rs:
-            body.append(f'<p><strong>Source:</strong> {_esc(_connector_type_label(rs))}</p>')
-            if rs.label and rs.label != _connector_type_label(rs):
-                body.append(f'<p><strong>Detail:</strong> {_esc(rs.label)}</p>')
+            for label, value in _source_detail_fields(rs):
+                body.append(f'<p><strong>{_esc(label)}:</strong> {_md_value_html(value)}</p>')
         elif t.table_type == "calculated":
             body.append('<p><strong>Source:</strong> Calculated (DAX)</p>')
             if include_dax and t.dax_partition:

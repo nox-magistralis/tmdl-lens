@@ -10,6 +10,7 @@ from tmdl_lens.readme_generator import (
     generate_html,
     generate_readme,
 )
+from tmdl_lens.source_resolver import resolve_sources
 from tmdl_lens.tmdl_parser import (
     Column,
     Measure,
@@ -129,6 +130,19 @@ def test_readme_escapes_markdown_cells():
     assert '`[a] = "x" \\|\\| [b] = "y" && [c] = "z"`' in readme
     measures_row = next(line for line in readme.split("\n") if line.startswith("| `Taxed`"))
     assert measures_row.count("|") - measures_row.count("\\|") == 5
+
+
+def test_html_detail_fields_match_markdown(sample_model, gen_config):
+    resolved = resolve_sources(
+        sample_model.source_expressions, sample_model.m_parameters, tables=sample_model.tables
+    )
+    html = generate_html(sample_model, resolved, gen_config)
+    assert "<strong>Chain:</strong>" in html
+    assert "<strong>Server:</strong>" in html
+    assert "<strong>Database:</strong>" in html
+    assert "<strong>Entity:</strong>" in html
+    assert "<strong>Detail:</strong>" not in html
+    assert "<code>dbo.orders</code>" in html
 
 
 def test_display_folder_backslashes_escaped():
