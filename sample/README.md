@@ -15,12 +15,13 @@
 
 ## 1. Data Sources
 
-This model contains 2 loaded tables, 1 calculated table, 1 field parameter, 1 measures-only table, 1 calculation group, 1 not loaded, 7 measures, 3 relationships.
+This model contains 3 loaded tables, 1 calculated table, 1 field parameter, 1 measures-only table, 1 calculation group, 1 not loaded, 7 measures, 3 relationships.
 
 | Table | Source Type | Source |
 |---|---|---|
 | `dim-product` | Power Platform Dataflow | source-dataflow-platform -> Power Platform Dataflow -> product_dim |
 | `fact-sales` | Power BI Dataflow | source-dataflow-standard -> Power BI Dataflow -> sales_fact |
+| `helper-order-lookup` (hidden) | SQL | source-sql-staging -> source-sql-direct -> SQL -> fake-server.database.windows.net -> SalesDB -> dbo.orders |
 
 ### Support Tables
 

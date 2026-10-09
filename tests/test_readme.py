@@ -169,6 +169,21 @@ def test_auto_date_tables_filtered():
     assert "| Hidden Tables | 1 |" in readme
 
 
+def test_hidden_loaded_tables_in_data_sources():
+    visible = Table(name="fact-sales", table_type="fact", is_loaded=True)
+    hidden = Table(name="helper-x", table_type="helper", is_loaded=True, is_hidden=True)
+    model = SemanticModel(report_name="T", tables=[visible, hidden])
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
+    for out in (readme, html):
+        assert "2 loaded tables" in out
+        assert "(hidden)" in out
+    visible_row = next(line for line in readme.split("\n") if line.startswith("| `fact-sales`"))
+    assert visible_row == "| `fact-sales` | - | - |"
+    hidden_row = next(line for line in readme.split("\n") if line.startswith("| `helper-x`"))
+    assert hidden_row == "| `helper-x` (hidden) | - | - |"
+
+
 def test_readme_unresolved_section(sample_model, sample_resolved, gen_config):
     readme = generate_readme(sample_model, sample_resolved, gen_config)
     assert "## ⚠ Unresolved Sources" in readme

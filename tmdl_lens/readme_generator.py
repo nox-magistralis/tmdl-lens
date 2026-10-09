@@ -221,7 +221,8 @@ def _data_sources_section(
             else:
                 src_type = "-"
                 label    = "-"
-            lines.append(_md_row(f"`{t.name}`", src_type, label))
+            name_cell = f"`{t.name}` (hidden)" if t.is_hidden else f"`{t.name}`"
+            lines.append(_md_row(name_cell, src_type, label))
         lines.append("")
     else:
         lines += ["*No loaded tables found.*", ""]
@@ -1139,14 +1140,15 @@ def generate_html(
     body.append(_html_table(["Property", "Value"], overview_rows, "overview-table"))
 
     body.append('<h2>1. Data Sources</h2>')
-    body.append(f'<p>{_esc(_model_summary(loaded_visible, staging, support, model))}</p>')
-    if loaded_visible:
+    body.append(f'<p>{_esc(_model_summary(loaded, staging, support, model))}</p>')
+    if loaded:
         rows = []
-        for t in loaded_visible:
+        for t in loaded:
             rs = get_table_source(t, resolved)
             src_type = _connector_type_label(rs) if rs else "-"
             label    = _source_label(rs) if rs else "-"
-            rows.append([_code(t.name), _esc(src_type), _esc(label)])
+            name_cell = _RawHtml(f"{_code(t.name)} (hidden)") if t.is_hidden else _code(t.name)
+            rows.append([name_cell, _esc(src_type), _esc(label)])
         body.append(_html_table(["Table", "Source Type", "Source"], rows))
     if support:
         body.append('<h3>Support Tables</h3>')
@@ -1477,7 +1479,7 @@ def generate_readme(
     sections = [
         f"# {report_name}\n",
         _overview_section(config, model),
-        _data_sources_section(loaded_visible, staging, support, resolved, model),
+        _data_sources_section(loaded, staging, support, resolved, model),
         _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
         _measures_section(model.tables, include_dax, show_hidden),
         _functions_section(model, include_dax),
