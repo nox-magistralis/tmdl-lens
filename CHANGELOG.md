@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0](https://github.com/nox-magistralis/tmdl-lens/compare/v0.5.4...v0.6.0) (2026-10-09)
+
+
+### Features
+
+* **functions:** document DAX functions and fix rendering output ([ad7f6fe](https://github.com/nox-magistralis/tmdl-lens/commit/ad7f6fed28a6088dabe1a97d285511195a2d1040))
+* **functions:** document DAX user-defined functions ([13f2af4](https://github.com/nox-magistralis/tmdl-lens/commit/13f2af4c6e66ba61a14d7a5a6cdfd823af7c1c7e))
+
+
+### Bug Fixes
+
+* **generator:** cover calculated and field-parameter tables in details ([317758d](https://github.com/nox-magistralis/tmdl-lens/commit/317758d6e131291e4ff48dac28914d2cc1532a20))
+* **generator:** escape HTML output exactly once ([0da37a6](https://github.com/nox-magistralis/tmdl-lens/commit/0da37a667b93c3f44ee6d531d5defc8569369986))
+* **generator:** escape Markdown table cells ([d2a82b6](https://github.com/nox-magistralis/tmdl-lens/commit/d2a82b61a7ae4734ef60e9cee14dd916128d6c30))
+* **generator:** filter auto-date tables from the whole output ([ef995c1](https://github.com/nox-magistralis/tmdl-lens/commit/ef995c1cadc93be3e3889e4dc2acab01c03deb7a))
+* **generator:** list hidden loaded tables in Data Sources ([005258c](https://github.com/nox-magistralis/tmdl-lens/commit/005258c14c305535e7533a9edac04365e1500a6b))
+* **parser:** detect the source connector across all M calls ([e8f14f0](https://github.com/nox-magistralis/tmdl-lens/commit/e8f14f0ae81b129f57bbc535ca57897f52b49308))
+* **parser:** parse roles folder layout and multi-line RLS filters ([90ae7b5](https://github.com/nox-magistralis/tmdl-lens/commit/90ae7b5a1a941c856e1662849c8b41c66342fb79))
+
 ## [0.5.4](https://github.com/nox-magistralis/tmdl-lens/compare/v0.5.3...v0.5.4) (2026-10-06)
 
 
