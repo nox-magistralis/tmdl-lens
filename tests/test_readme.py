@@ -184,6 +184,19 @@ def test_hidden_loaded_tables_in_data_sources():
     assert hidden_row == "| `helper-x` (hidden) | - | - |"
 
 
+def test_table_details_covers_support_tables(sample_model, sample_resolved, gen_config):
+    readme = generate_readme(sample_model, sample_resolved, gen_config)
+    html = generate_html(sample_model, sample_resolved, gen_config)
+    assert "### `dim-date`" in readme
+    assert "### `param-metric-selector`" in readme
+    assert "CALENDARAUTO" in readme
+    assert "Source:** Field Parameter" in readme
+    assert "### `_measures`" not in readme
+    assert "CALENDARAUTO" in html
+    assert "Source:</strong> Field Parameter" in html
+    assert "<h3><code>_measures</code></h3>" not in html
+
+
 def test_readme_unresolved_section(sample_model, sample_resolved, gen_config):
     readme = generate_readme(sample_model, sample_resolved, gen_config)
     assert "## ⚠ Unresolved Sources" in readme

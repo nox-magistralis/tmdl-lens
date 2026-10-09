@@ -202,6 +202,56 @@ DIVIDE(
 
 ---
 
+### `dim-date`
+
+**Source:** Calculated (DAX)  
+
+```dax
+CALENDARAUTO()
+```
+
+**Columns**
+
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `Date` | Date/Time | `Long Date` | none | `Date` | - | - |  |
+| `Year` | Integer | `0` | none | `Year` | - | - |  |
+| `MonthName` | Text | - | none | `MonthName` | `MonthNumber` | - |  |
+| `MonthNumber` | Integer | `0` | none | `MonthNumber` | - | - |  |
+
+**Key Column:** `Date`  
+
+**Calculated Columns**
+
+- **`IsWeekend`**
+  ```dax
+  WEEKDAY('dim-date'[Date], 2) > 5
+  ```
+- **`PriorYearFlag`**
+  ```dax
+  IF(
+				YEAR('dim-date'[Date]) = YEAR(TODAY()) - 1,
+				TRUE(),
+				FALSE()
+			)
+  ```
+
+---
+
+### `param-metric-selector`
+
+**Source:** Field Parameter  
+
+**Columns**
+
+| Column | Type | Format | Summarize By | Source Column | Sort By | Description | Hidden |
+|---|---|---|---|---|---|---|---|
+| `param-metric-selector` | - | - | none | `[Value1]` | `param-metric-selector Order` | - |  |
+| `param-metric-selector Fields` | - | - | none | `[Value2]` | - | - | Hidden |
+| `param-metric-selector Order` | - | `0` | sum | `[Value3]` | - | - | Hidden |
+
+---
+
 
 **Format Strings Used (23 total, 3 unique)**
 

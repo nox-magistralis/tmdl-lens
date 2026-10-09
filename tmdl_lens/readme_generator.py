@@ -517,11 +517,14 @@ def _table_details_section(
     show_hidden: bool = True,
 ) -> str:
     lines = ["## 2. Table Details", ""]
-    calc_groups = [t for t in support_tables if t.table_type == "calc_group"]
+    detail_support = [
+        t for t in support_tables
+        if t.table_type in ("calc_group", "calculated", "field_parameter")
+    ]
     if show_hidden:
-        all_tables = loaded_tables + calc_groups
+        all_tables = loaded_tables + detail_support
     else:
-        all_tables = [t for t in loaded_tables if not t.is_hidden] + calc_groups
+        all_tables = [t for t in loaded_tables if not t.is_hidden] + detail_support
     if all_tables:
         for t in all_tables:
             lines.append(_table_detail_block(t, resolved, include_dax, tables_by_name, hidden_measures_map, hidden_columns_map, show_hidden))
@@ -1180,11 +1183,14 @@ def generate_html(
         body.append('<p class="empty">None.</p>')
 
     body.append('<h2>2. Table Details</h2>')
-    calc_groups = [t for t in support if t.table_type == "calc_group"]
+    detail_support = [
+        t for t in support
+        if t.table_type in ("calc_group", "calculated", "field_parameter")
+    ]
     if show_hidden:
-        table_detail_tables = loaded + calc_groups
+        table_detail_tables = loaded + detail_support
     else:
-        table_detail_tables = loaded_visible + calc_groups
+        table_detail_tables = loaded_visible + detail_support
     for t in table_detail_tables:
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
