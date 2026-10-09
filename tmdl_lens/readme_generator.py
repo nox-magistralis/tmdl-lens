@@ -113,6 +113,32 @@ def _is_auto_date_table(name: str) -> bool:
     return name.startswith("LocalDateTable_") or name.startswith("DateTableTemplate_")
 
 
+def _collect(model: SemanticModel, show_hidden: bool) -> dict:
+    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
+    replaced = replace(model, tables=tables)
+    support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
+    loaded = [t for t in tables if t.is_loaded and t.table_type not in support_types]
+    support = [t for t in tables if t.is_loaded and t.table_type in support_types]
+    staging = [t for t in tables if not t.is_loaded]
+    loaded_visible = [t for t in loaded if not t.is_hidden]
+    hidden_tables = [t for t in tables if t.is_loaded and t.is_hidden]
+    return {
+        "model": replaced,
+        "tables": tables,
+        "loaded": loaded,
+        "support": support,
+        "staging": staging,
+        "loaded_visible": loaded_visible,
+        "hidden_tables": hidden_tables,
+        "measures": [
+            (t.name, m) for t in tables for m in t.measures
+            if show_hidden or not m.is_hidden
+        ],
+        "all_measures": [(t.name, m) for t in tables for m in t.measures],
+        "calc_cols": [c for t in tables for c in t.columns if c.is_calculated],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Section helpers
 # ---------------------------------------------------------------------------
@@ -268,6 +294,104 @@ def _data_sources_section(
     return "\n".join(lines)
 
 
+def _source_detail_fields(rs: ResolvedSource) -> list:
+    fields = []
+    fields.append(("Source", _connector_type_label(rs)))
+    if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform") and rs.entity:
+        fields.append(("Entity", f"`{rs.entity}`"))
+    if rs.source_type == "connector" and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift") and rs.connector_function == "Database":
+        if rs.schema and rs.table_or_view:
+            fields.append(("Table", f"`{rs.schema}.{rs.table_or_view}`"))
+        if rs.physical_tables:
+            if len(rs.physical_tables) == 1:
+                ref = rs.physical_tables[0]
+                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                suffix = " (native query)" if ref.source == "native_query" else ""
+                fields.append(("Physical table", f"`{label}`{suffix}"))
+            else:
+                parts = []
+                for ref in rs.physical_tables:
+                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                    if ref.source == "native_query":
+                        label += " (native query)"
+                    parts.append(f"`{label}`")
+                fields.append(("Physical tables", ", ".join(parts)))
+        if rs.server:
+            fields.append(("Server", f"`{rs.server}`"))
+        if rs.database:
+            fields.append(("Database", f"`{rs.database}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana") and rs.connector_function == "Database")
+        or (rs.connector_namespace == "Snowflake" and rs.connector_function == "Databases")
+    ):
+        if rs.server:
+            fields.append(("Server", f"`{rs.server}`"))
+        if rs.database:
+            fields.append(("Database", f"`{rs.database}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Teradata" and rs.connector_function == "Database":
+        if rs.server:
+            fields.append(("Server", f"`{rs.server}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Databricks" and rs.connector_function in ("Catalogs", "Contents"):
+        if rs.server:
+            fields.append(("Host", f"`{rs.server}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Dataverse" and rs.connector_function == "Feed":
+        if rs.url:
+            fields.append(("Environment URL", f"`{rs.url}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace == "AzureDevOps" and rs.connector_function == "Contents")
+        or (rs.connector_namespace == "Dynamics365" and rs.connector_function == "FinanceAndOperations")
+        or (rs.connector_namespace in ("GoogleSheets", "QuickBooks", "GitHub") and rs.connector_function == "Contents")
+    ):
+        if rs.url:
+            fields.append(("URL", f"`{rs.url}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Salesforce" and rs.url:
+        fields.append(("URL", f"`{rs.url}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "AzureStorage":
+        if rs.account:
+            fields.append(("Account", f"`{rs.account}`"))
+        if rs.container:
+            fields.append(("Container", f"`{rs.container}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
+        fields.append(("DSN", f"`{rs.dsn}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
+        fields.append(("SharePoint URL", f"`{rs.sharepoint_url}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
+        or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
+    ) and rs.file_name:
+        fields.append(("File", f"`{rs.file_name}`"))
+    if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
+        fields.append(("Sheet", f"`{rs.sheet_name}`"))
+    if rs.source_type == "connector" and (
+        (rs.connector_namespace == "Web" and rs.connector_function == "Contents")
+        or (rs.connector_namespace == "OData" and rs.connector_function == "Feed")
+    ) and rs.url:
+        fields.append(("URL", f"`{rs.url}`"))
+    if rs.chain:
+        fields.append(("Chain", f"`{rs.label}`"))
+    if rs.unresolved:
+        fields.append(("⚠ Unresolved", rs.unresolved_reason))
+    if rs.physical_tables and not (
+        rs.source_type == "connector"
+        and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
+        and rs.connector_function == "Database"
+    ):
+        if len(rs.physical_tables) == 1:
+            ref = rs.physical_tables[0]
+            label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+            suffix = " (native query)" if ref.source == "native_query" else ""
+            fields.append(("Physical table", f"`{label}`{suffix}"))
+        else:
+            parts = []
+            for ref in rs.physical_tables:
+                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
+                if ref.source == "native_query":
+                    label += " (native query)"
+                parts.append(f"`{label}`")
+            fields.append(("Physical tables", ", ".join(parts)))
+    return fields
+
+
 def _table_detail_block(
     table: Table,
     resolved: dict[str, ResolvedSource],
@@ -282,114 +406,8 @@ def _table_detail_block(
     rs = get_table_source(table, resolved)
 
     if rs:
-        src_type_display = _connector_type_label(rs)
-        lines.append(f"**Source:** {src_type_display}  ")
-        # Dataflow entity (PowerBI / PowerPlatform)
-        if rs.source_type == "connector" and rs.connector_namespace in ("PowerBI", "PowerPlatform") and rs.entity:
-            lines.append(f"**Entity:** `{rs.entity}`  ")
-        # SQL (Sql/AzureSQL/AmazonRedshift .Database)
-        if rs.source_type == "connector" and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift") and rs.connector_function == "Database":
-            if rs.schema and rs.table_or_view:
-                lines.append(f"**Table:** `{rs.schema}.{rs.table_or_view}`  ")
-            if rs.physical_tables:
-                if len(rs.physical_tables) == 1:
-                    ref = rs.physical_tables[0]
-                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                    suffix = " (native query)" if ref.source == "native_query" else ""
-                    lines.append(f"**Physical table:** `{label}`{suffix}  ")
-                else:
-                    parts = []
-                    for ref in rs.physical_tables:
-                        label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                        if ref.source == "native_query":
-                            label += " (native query)"
-                        parts.append(f"`{label}`")
-                    lines.append(f"**Physical tables:** {', '.join(parts)}  ")
-            if rs.server:
-                lines.append(f"**Server:** `{rs.server}`  ")
-            if rs.database:
-                lines.append(f"**Database:** `{rs.database}`  ")
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace in ("Oracle", "MySql", "PostgreSQL", "DB2", "SapHana") and rs.connector_function == "Database")
-            or (rs.connector_namespace == "Snowflake" and rs.connector_function == "Databases")
-        ):
-            if rs.server:
-                lines.append(f"**Server:** `{rs.server}`  ")
-            if rs.database:
-                lines.append(f"**Database:** `{rs.database}`  ")
-        # Teradata .Database
-        if rs.source_type == "connector" and rs.connector_namespace == "Teradata" and rs.connector_function == "Database":
-            if rs.server:
-                lines.append(f"**Server:** `{rs.server}`  ")
-        # Databricks .Catalogs / .Contents
-        if rs.source_type == "connector" and rs.connector_namespace == "Databricks" and rs.connector_function in ("Catalogs", "Contents"):
-            if rs.server:
-                lines.append(f"**Host:** `{rs.server}`  ")
-        # Dataverse .Feed
-        if rs.source_type == "connector" and rs.connector_namespace == "Dataverse" and rs.connector_function == "Feed":
-            if rs.url:
-                lines.append(f"**Environment URL:** `{rs.url}`  ")
-        # AzureDevOps/Contents, Dynamics365/FinanceAndOperations, GoogleSheets/QuickBooks/GitHub/Contents
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace == "AzureDevOps" and rs.connector_function == "Contents")
-            or (rs.connector_namespace == "Dynamics365" and rs.connector_function == "FinanceAndOperations")
-            or (rs.connector_namespace in ("GoogleSheets", "QuickBooks", "GitHub") and rs.connector_function == "Contents")
-        ):
-            if rs.url:
-                lines.append(f"**URL:** `{rs.url}`  ")
-        # Salesforce Data / Reports
-        if rs.source_type == "connector" and rs.connector_namespace == "Salesforce" and rs.url:
-            lines.append(f"**URL:** `{rs.url}`  ")
-        # AzureStorage Blobs/BlobContents/Table/DataLake/DataLakeContents
-        if rs.source_type == "connector" and rs.connector_namespace == "AzureStorage":
-            if rs.account:
-                lines.append(f"**Account:** `{rs.account}`  ")
-            if rs.container:
-                lines.append(f"**Container:** `{rs.container}`  ")
-        # ODBC .DataSource
-        if rs.source_type == "connector" and rs.connector_namespace == "Odbc" and rs.connector_function == "DataSource" and rs.dsn:
-            lines.append(f"**DSN:** `{rs.dsn}`  ")
-        # SharePoint .Files / .Tables
-        if rs.source_type == "connector" and rs.connector_namespace == "SharePoint" and rs.connector_function in ("Files", "Tables") and rs.sharepoint_url:
-            lines.append(f"**SharePoint URL:** `{rs.sharepoint_url}`  ")
-        # File - Excel.Workbook or Csv.Document
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace == "Excel" and rs.connector_function == "Workbook")
-            or (rs.connector_namespace == "Csv" and rs.connector_function == "Document")
-        ) and rs.file_name:
-            lines.append(f"**File:** `{rs.file_name}`  ")
-        # Sheet - Excel.Workbook
-        if rs.source_type == "connector" and rs.connector_namespace == "Excel" and rs.connector_function == "Workbook" and rs.sheet_name:
-            lines.append(f"**Sheet:** `{rs.sheet_name}`  ")
-        # Web API / OData
-        if rs.source_type == "connector" and (
-            (rs.connector_namespace == "Web" and rs.connector_function == "Contents")
-            or (rs.connector_namespace == "OData" and rs.connector_function == "Feed")
-        ) and rs.url:
-            lines.append(f"**URL:** `{rs.url}`  ")
-        if rs.chain:
-            lines.append(f"**Chain:** `{rs.label}`  ")
-        if rs.unresolved:
-            lines.append(f"**⚠ Unresolved:** {rs.unresolved_reason}  ")
-        # Fallback physical-table display - for connectors other than SQL Database
-        if rs.physical_tables and not (
-            rs.source_type == "connector"
-            and rs.connector_namespace in ("Sql", "AzureSQL", "AmazonRedshift")
-            and rs.connector_function == "Database"
-        ):
-            if len(rs.physical_tables) == 1:
-                ref = rs.physical_tables[0]
-                label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                suffix = " (native query)" if ref.source == "native_query" else ""
-                lines.append(f"**Physical table:** `{label}`{suffix}  ")
-            else:
-                parts = []
-                for ref in rs.physical_tables:
-                    label = f"{ref.schema}.{ref.table}" if ref.schema else ref.table
-                    if ref.source == "native_query":
-                        label += " (native query)"
-                    parts.append(f"`{label}`")
-                lines.append(f"**Physical tables:** {', '.join(parts)}  ")
+        for label, value in _source_detail_fields(rs):
+            lines.append(f"**{label}:** {value}  ")
     elif table.table_type == "calculated":
         lines.append("**Source:** Calculated (DAX)  ")
         if include_dax and table.dax_partition:
@@ -564,18 +582,17 @@ def _column_format_string_inventory(tables: list[Table], heading: str = "Format 
     return "\n".join(lines)
 
 
-def _measure_format_string_inventory(tables: list[Table]) -> str:
-    all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
-    if not all_measures:
+def _measure_format_string_inventory(measures: list) -> str:
+    if not measures:
         return ""
 
     groups: dict[str, list[tuple[str, str]]] = {}
-    for table_name, m in all_measures:
+    for table_name, m in measures:
         key = m.format_string.strip() if m.format_string.strip() else "(none)"
         groups.setdefault(key, []).append((m.name, table_name))
 
     sorted_groups = sorted(groups.items(), key=lambda x: -len(x[1]))
-    total = len(all_measures)
+    total = len(measures)
     unique = len(groups)
 
     lines = [
@@ -593,11 +610,8 @@ def _measure_format_string_inventory(tables: list[Table]) -> str:
     return "\n".join(lines)
 
 
-def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool = True) -> str:
-    if show_hidden:
-        all_measures = [(t.name, m) for t in tables for m in t.measures]
-    else:
-        all_measures = [(t.name, m) for t in tables for m in t.measures if not m.is_hidden]
+def _measures_section(measures: list, include_dax: bool) -> str:
+    all_measures = measures
     lines = ["## 3. Measures", ""]
 
     if not all_measures:
@@ -610,7 +624,7 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
         folders.setdefault(folder, []).append((table_name, m))
 
     for folder in sorted(folders.keys()):
-        lines += [f"### {folder}", "", "| Measure | Table | Format | Description |", "|---|---|---|---|"]
+        lines += [f"### {folder.replace(chr(92), chr(92) * 2)}", "", "| Measure | Table | Format | Description |", "|---|---|---|---|"]
         for table_name, m in folders[folder]:
             fmt  = f"`{m.format_string}`" if m.format_string else "-"
             desc = m.description or "-"
@@ -622,7 +636,7 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
                     continue
                 lines += [f"**`{m.name}`**", "```dax", m.dax_expression, "```", ""]
 
-    lines.append(_measure_format_string_inventory(tables))
+    lines.append(_measure_format_string_inventory(measures))
     lines += ["---", ""]
     return "\n".join(lines)
 
@@ -953,6 +967,7 @@ def _statistics_section(
     loaded_tables: list[Table],
     support_tables: list[Table],
     staging_tables: list[Table],
+    hidden_tables: list[Table],
 ) -> str:
     calc      = [t for t in support_tables if t.table_type == "calculated"]
     fp        = [t for t in support_tables if t.table_type == "field_parameter"]
@@ -967,8 +982,6 @@ def _statistics_section(
 
     def names(lst):
         return ", ".join(f"`{t.name}`" for t in lst) if lst else "-"
-
-    hidden_tables = [t for t in model.tables if t.is_loaded and t.is_hidden]
 
     lines = [
         "## 8. Model Statistics",
@@ -1102,6 +1115,10 @@ def _pre(text: str) -> _RawHtml:
     return _RawHtml(f"<pre><code>{_esc(text)}</code></pre>")
 
 
+def _md_value_html(value: str) -> _RawHtml:
+    return _RawHtml(re.sub(r"`([^`]*)`", r"<code>\1</code>", _esc(value)))
+
+
 def generate_html(
     model: SemanticModel,
     resolved: dict[str, ResolvedSource],
@@ -1111,15 +1128,14 @@ def generate_html(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
-    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
-    model = replace(model, tables=tables)
-
-    support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
-    loaded  = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
-    support = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
-    staging = [t for t in model.tables if not t.is_loaded]
-    loaded_visible = [t for t in loaded if not t.is_hidden]
-    loaded_hidden  = [t for t in loaded if t.is_hidden]
+    collected = _collect(model, show_hidden)
+    model = collected["model"]
+    loaded = collected["loaded"]
+    support = collected["support"]
+    staging = collected["staging"]
+    loaded_visible = collected["loaded_visible"]
+    hidden_tables = collected["hidden_tables"]
+    all_measures = collected["measures"]
 
     ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
@@ -1195,9 +1211,8 @@ def generate_html(
         body.append(f'<h3>{_code(t.name)}</h3>')
         rs = get_table_source(t, resolved)
         if rs:
-            body.append(f'<p><strong>Source:</strong> {_esc(_connector_type_label(rs))}</p>')
-            if rs.label and rs.label != _connector_type_label(rs):
-                body.append(f'<p><strong>Detail:</strong> {_esc(rs.label)}</p>')
+            for label, value in _source_detail_fields(rs):
+                body.append(f'<p><strong>{_esc(label)}:</strong> {_md_value_html(value)}</p>')
         elif t.table_type == "calculated":
             body.append('<p><strong>Source:</strong> Calculated (DAX)</p>')
             if include_dax and t.dax_partition:
@@ -1288,10 +1303,6 @@ def generate_html(
                         body.append(f"<p>\u26a0 References hidden: {', '.join(parts)}</p>")
 
     body.append('<h2>3. Measures</h2>')
-    if show_hidden:
-        all_measures = [(t.name, m) for t in model.tables for m in t.measures]
-    else:
-        all_measures = [(t.name, m) for t in model.tables for m in t.measures if not m.is_hidden]
     if not all_measures:
         body.append('<p class="empty">No measures defined in this model.</p>')
     else:
@@ -1431,7 +1442,7 @@ def generate_html(
     def _names(lst): return _RawHtml(", ".join(_code(t.name) for t in lst)) if lst else "-"
     body.append(_html_table(["Category", "Count", "Items"], [
         ["Loaded Tables",        str(len(loaded_visible)),       _names(loaded_visible)],
-        ["Hidden Tables",        str(len(loaded_hidden)),        _names(loaded_hidden)],
+        ["Hidden Tables",        str(len(hidden_tables)),        _names(hidden_tables)],
         ["Calculated Tables",    str(len(calc)),                 _names(calc)],
         ["Field Parameters",     str(len(fp)),                   _names(fp)],
         ["Measures-Only Tables", str(len(mo)),                   _names(mo)],
@@ -1469,16 +1480,12 @@ def generate_readme(
     include_dax = config.get("include_dax", True)
     show_hidden = config.get("show_hidden", True)
 
-    tables = [t for t in model.tables if not _is_auto_date_table(t.name)]
-    model = replace(model, tables=tables)
-
-    support_types = {"calculated", "field_parameter", "measures_only", "calc_group"}
-    loaded   = [t for t in model.tables if t.is_loaded and t.table_type not in support_types]
-    support  = [t for t in model.tables if t.is_loaded and t.table_type in support_types]
-    staging  = [t for t in model.tables if not t.is_loaded]
-    loaded_visible = [t for t in loaded if not t.is_hidden]
-    # loaded_hidden is no longer used - hidden tables render inline in Table Details.
-    # loaded_visible is still used for Data Sources and Statistics (visible-only).
+    collected = _collect(model, show_hidden)
+    model = collected["model"]
+    loaded = collected["loaded"]
+    support = collected["support"]
+    staging = collected["staging"]
+    loaded_visible = collected["loaded_visible"]
 
     ref_tables, ref_measures, ref_columns = _build_hidden_reference_map(model)
 
@@ -1487,7 +1494,7 @@ def generate_readme(
         _overview_section(config, model),
         _data_sources_section(loaded, staging, support, resolved, model),
         _table_details_section(loaded, support, resolved, include_dax, ref_tables, ref_measures, ref_columns, show_hidden),
-        _measures_section(model.tables, include_dax, show_hidden),
+        _measures_section(collected["measures"], include_dax),
         _functions_section(model, include_dax),
         _relationships_section(model),
         _security_roles_section(model),
@@ -1498,7 +1505,7 @@ def generate_readme(
     if unresolved:
         sections.append(unresolved)
 
-    sections.append(_statistics_section(model, loaded_visible, support, staging))
+    sections.append(_statistics_section(model, loaded_visible, support, staging, collected["hidden_tables"]))
 
     sections.append("*Generated by tmdl-lens*\n")
 

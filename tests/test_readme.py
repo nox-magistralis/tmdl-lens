@@ -10,6 +10,7 @@ from tmdl_lens.readme_generator import (
     generate_html,
     generate_readme,
 )
+from tmdl_lens.source_resolver import resolve_sources
 from tmdl_lens.tmdl_parser import (
     Column,
     Measure,
@@ -129,6 +130,50 @@ def test_readme_escapes_markdown_cells():
     assert '`[a] = "x" \\|\\| [b] = "y" && [c] = "z"`' in readme
     measures_row = next(line for line in readme.split("\n") if line.startswith("| `Taxed`"))
     assert measures_row.count("|") - measures_row.count("\\|") == 5
+
+
+def test_html_detail_fields_match_markdown(sample_model, gen_config):
+    resolved = resolve_sources(
+        sample_model.source_expressions, sample_model.m_parameters, tables=sample_model.tables
+    )
+    html = generate_html(sample_model, resolved, gen_config)
+    assert "<strong>Chain:</strong>" in html
+    assert "<strong>Server:</strong>" in html
+    assert "<strong>Database:</strong>" in html
+    assert "<strong>Entity:</strong>" in html
+    assert "<strong>Detail:</strong>" not in html
+    assert "<code>dbo.orders</code>" in html
+
+
+def test_measure_inventory_counts_match_measures_section(sample_model, sample_resolved, gen_config):
+    readme = generate_readme(sample_model, sample_resolved, gen_config)
+    html = generate_html(sample_model, sample_resolved, gen_config)
+    assert "**Format Strings Used (7 total, 3 unique)**" in readme
+    assert "Measure Format Strings (7 total, 3 unique)" in html
+    assert "| Measures | 7 | - |" in readme
+
+
+def test_hidden_support_table_counted_once():
+    hidden_calc = Table(
+        name="hidden-calc", table_type="calculated", is_loaded=True, is_hidden=True
+    )
+    visible = Table(name="fact-sales", table_type="fact", is_loaded=True)
+    model = SemanticModel(report_name="T", tables=[visible, hidden_calc])
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
+    assert "| Hidden Tables | 1 |" in readme
+    assert "<td>Hidden Tables</td><td>1</td>" in html
+
+
+def test_display_folder_backslashes_escaped():
+    measure = Measure(
+        name="Total", dax_expression="SUM([a])", display_folder="Metrics\\Base"
+    )
+    table = Table(name="_measures", table_type="measures_only", measures=[measure])
+    model = SemanticModel(report_name="T", tables=[table])
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    assert "### Metrics\\\\Base" in readme
+    assert "### Metrics\\Base" not in readme
 
 
 def test_auto_date_tables_filtered():
