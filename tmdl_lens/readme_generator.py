@@ -155,18 +155,32 @@ def _model_summary(
 # Section builders
 # ---------------------------------------------------------------------------
 
+def _md_cell(value) -> str:
+    return (
+        str(value)
+        .replace("|", "\\|")
+        .replace("\r\n", " ")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
+
+
+def _md_row(*cells) -> str:
+    return "| " + " | ".join(_md_cell(c) for c in cells) + " |"
+
+
 def _overview_section(config: dict, model: SemanticModel) -> str:
     rows = []
     if config.get("owner"):
-        rows.append(f"| **Owner** | {config['owner']} |")
+        rows.append(_md_row("**Owner**", config["owner"]))
     if config.get("team"):
-        rows.append(f"| **Team** | {config['team']} |")
+        rows.append(_md_row("**Team**", config["team"]))
     if config.get("refresh_schedule"):
-        rows.append(f"| **Refresh Schedule** | {config['refresh_schedule']} |")
+        rows.append(_md_row("**Refresh Schedule**", config["refresh_schedule"]))
     rows.extend([
-        f"| **Culture** | {model.model_culture or '-'} |",
-        f"| **Compatibility Level** | {model.database_compatibility_level or '-'} |",
-        f"| **Data Source Version** | {model.model_data_source_version or '-'} |",
+        _md_row("**Culture**", model.model_culture or "-"),
+        _md_row("**Compatibility Level**", model.database_compatibility_level or "-"),
+        _md_row("**Data Source Version**", model.model_data_source_version or "-"),
     ])
 
     lines = [
@@ -205,7 +219,7 @@ def _data_sources_section(
             else:
                 src_type = "-"
                 label    = "-"
-            lines.append(f"| `{t.name}` | {src_type} | {label} |")
+            lines.append(_md_row(f"`{t.name}`", src_type, label))
         lines.append("")
     else:
         lines += ["*No loaded tables found.*", ""]
@@ -218,7 +232,7 @@ def _data_sources_section(
             "|---|---|",
         ]
         for t in support_tables:
-            lines.append(f"| `{t.name}` | {_table_type_label(t.table_type)} |")
+            lines.append(_md_row(f"`{t.name}`", _table_type_label(t.table_type)))
         lines.append("")
 
     if staging_tables:
@@ -239,7 +253,7 @@ def _data_sources_section(
             else:
                 src_type = "-"
                 label    = "-"
-            lines.append(f"| `{t.name}` | {src_type} | {label} |")
+            lines.append(_md_row(f"`{t.name}`", src_type, label))
         lines.append("")
         staging_fmt = _column_format_string_inventory(staging_tables, heading="Not Loaded Table Format Strings Used")
         if staging_fmt:
@@ -409,7 +423,7 @@ def _table_detail_block(
             desc    = col.description or "-"
             hidden  = "Hidden" if col.is_hidden else ""
             lines.append(
-                f"| `{col.name}` | {_dtype(col.data_type)} | {fmt} | {summ} | {src_col} | {sort_by} | {desc} | {hidden} |"
+                _md_row(f"`{col.name}`", _dtype(col.data_type), fmt, summ, src_col, sort_by, desc, hidden)
             )
         lines.append("")
 
@@ -445,7 +459,7 @@ def _table_detail_block(
         lines += ["**Calculation Items**", "", "| Item | Ordinal | Format String |", "|---|---|---|"]
         for item in table.calculation_items:
             fmt = f"`{item.format_string_expression}`" if item.format_string_expression else "-"
-            lines.append(f"| `{item.name}` | {item.ordinal} | {fmt} |")
+            lines.append(_md_row(f"`{item.name}`", item.ordinal, fmt))
         lines.append("")
         lines += [
             "> Calculation items can be applied to any measure at report-build time "
@@ -469,7 +483,7 @@ def _table_detail_block(
             fmt    = f"`{m.format_string}`" if m.format_string else "-"
             desc   = m.description or "-"
             hidden = "Hidden" if m.is_hidden else ""
-            lines.append(f"| `{m.name}` | {fmt} | {desc} | {hidden} |")
+            lines.append(_md_row(f"`{m.name}`", fmt, desc, hidden))
         if include_dax:
             lines += ["", "**Measure DAX**", ""]
             for m in display_measures:
@@ -539,7 +553,7 @@ def _column_format_string_inventory(tables: list[Table], heading: str = "Format 
     for fmt, items in sorted_groups:
         items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
         fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
-        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+        lines.append(_md_row(fmt_cell, len(items), items_str))
     lines.append("")
     return "\n".join(lines)
 
@@ -568,7 +582,7 @@ def _measure_format_string_inventory(tables: list[Table]) -> str:
     for fmt, items in sorted_groups:
         items_str = ", ".join(f"`{name}` ({tbl})" for name, tbl in items)
         fmt_cell = f"`{fmt}`" if fmt != "(none)" else "(none)"
-        lines.append(f"| {fmt_cell} | {len(items)} | {items_str} |")
+        lines.append(_md_row(fmt_cell, len(items), items_str))
     lines.append("")
     return "\n".join(lines)
 
@@ -594,7 +608,7 @@ def _measures_section(tables: list[Table], include_dax: bool, show_hidden: bool 
         for table_name, m in folders[folder]:
             fmt  = f"`{m.format_string}`" if m.format_string else "-"
             desc = m.description or "-"
-            lines.append(f"| `{m.name}` | `{table_name}` | {fmt} | {desc} |")
+            lines.append(_md_row(f"`{m.name}`", f"`{table_name}`", fmt, desc))
         lines.append("")
         if include_dax:
             for _, m in folders[folder]:
@@ -635,7 +649,7 @@ def _functions_section(model: SemanticModel, include_dax: bool) -> str:
             ", ".join(f"`{mname}` ({tbl})" for mname, tbl in used_by) if used_by else "-"
         )
         desc = fn.description or "-"
-        lines.append(f"| `{fn.name}` | {used_cell} | {desc} |")
+        lines.append(_md_row(f"`{fn.name}`", used_cell, desc))
     lines.append("")
     if include_dax:
         for fn in model.functions:
@@ -669,7 +683,7 @@ def _relationships_section(model: SemanticModel) -> str:
         ]
         for r in active:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cardinality or '-'} | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
+                _md_row(f"`{r.from_table}`", f"`{r.from_column}`", f"`{r.to_table}`", f"`{r.to_column}`", r.cardinality or "-", r.cross_filtering_behavior, r.security_filtering_behavior)
             )
         lines.append("")
 
@@ -681,7 +695,7 @@ def _relationships_section(model: SemanticModel) -> str:
         ]
         for r in inactive:
             lines.append(
-                f"| `{r.from_table}` | `{r.from_column}` | `{r.to_table}` | `{r.to_column}` | {r.cross_filtering_behavior} | {r.security_filtering_behavior} |"
+                _md_row(f"`{r.from_table}`", f"`{r.from_column}`", f"`{r.to_table}`", f"`{r.to_column}`", r.cross_filtering_behavior, r.security_filtering_behavior)
             )
         lines.append("")
 
@@ -872,12 +886,12 @@ def _security_roles_section(model: SemanticModel) -> str:
     for role in model.security_roles:
         if not role.table_filters:
             dynamic_label = f"Yes ({role.dynamic_function})" if role.is_dynamic else "No"
-            lines.append(f"| `{role.name}` | - | - | {dynamic_label} |")
+            lines.append(_md_row(f"`{role.name}`", "-", "-", dynamic_label))
         else:
             for i, tf in enumerate(role.table_filters):
                 role_cell     = f"`{role.name}`" if i == 0 else ""
                 dynamic_label = (f"Yes ({role.dynamic_function})" if role.is_dynamic else "No") if i == 0 else ""
-                lines.append(f"| {role_cell} | `{tf.table}` | `{tf.dax_filter}` | {dynamic_label} |")
+                lines.append(_md_row(role_cell, f"`{tf.table}`", f"`{tf.dax_filter}`", dynamic_label))
 
     lines += ["", "---", ""]
     return "\n".join(lines)
@@ -896,7 +910,7 @@ def _m_parameters_section(model: SemanticModel) -> str:
         used_by   = usage_map.get(p.name, [])
         used_cell = ", ".join(f"`{e}`" for e in used_by) if used_by else "-"
         val_cell  = f"`{p.value}`" if p.value.strip() else "-"
-        lines.append(f"| `{p.name}` | {p.param_type} | {val_cell} | {used_cell} |")
+        lines.append(_md_row(f"`{p.name}`", p.param_type, val_cell, used_cell))
 
     lines += [
         "",
@@ -923,7 +937,7 @@ def _unresolved_section(resolved: dict[str, ResolvedSource]) -> str:
         "|---|---|",
     ]
     for rs in unresolved:
-        lines.append(f"| `{rs.expression_name}` | {rs.unresolved_reason} |")
+        lines.append(_md_row(f"`{rs.expression_name}`", rs.unresolved_reason))
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -955,16 +969,16 @@ def _statistics_section(
         "",
         "| Category | Count | Items |",
         "|---|---|---|",
-        f"| Loaded Tables | {len(loaded_tables)} | {names(loaded_tables)} |",
-        f"| Hidden Tables | {len(hidden_tables)} | {names(hidden_tables)} |",
-        f"| Calculated Tables | {len(calc)} | {names(calc)} |",
-        f"| Field Parameters | {len(fp)} | {names(fp)} |",
-        f"| Measures-Only Tables | {len(mo)} | {names(mo)} |",
-        f"| Calculation Groups | {len(cg)} | {names(cg)} |",
-        f"| Not Loaded | {len(staging_tables)} | {names(staging_tables)} |",
-        f"| Relationships | {len(visible_rels)} | - |",
-        f"| Measures | {len(all_meas)} | - |",
-        f"| Calculated Columns | {len(calc_cols)} | - |",
+        _md_row("Loaded Tables", len(loaded_tables), names(loaded_tables)),
+        _md_row("Hidden Tables", len(hidden_tables), names(hidden_tables)),
+        _md_row("Calculated Tables", len(calc), names(calc)),
+        _md_row("Field Parameters", len(fp), names(fp)),
+        _md_row("Measures-Only Tables", len(mo), names(mo)),
+        _md_row("Calculation Groups", len(cg), names(cg)),
+        _md_row("Not Loaded", len(staging_tables), names(staging_tables)),
+        _md_row("Relationships", len(visible_rels), "-"),
+        _md_row("Measures", len(all_meas), "-"),
+        _md_row("Calculated Columns", len(calc_cols), "-"),
         "",
         "---",
         "",

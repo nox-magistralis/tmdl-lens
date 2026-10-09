@@ -5,6 +5,8 @@ test_readme.py - pytest tests for the Markdown/HTML generators.
 from tmdl_lens.readme_generator import (
     _build_function_usage_map,
     _esc,
+    _md_cell,
+    _md_row,
     generate_html,
     generate_readme,
 )
@@ -95,6 +97,36 @@ def test_html_role_dynamic_label_escaped_once():
     html = generate_html(model, {}, {"report_name": "T", "include_dax": True})
     assert "Yes (USER&amp;NAME)" in html
     assert "Yes (USER&amp;amp;NAME)" not in html
+
+
+def test_md_cell_escapes_pipes_and_newlines():
+    assert _md_cell("Net | gross") == "Net \\| gross"
+    assert _md_cell("a\r\nb\nc\rd") == "a b c d"
+    assert _md_cell("plain") == "plain"
+    assert _md_cell(5) == "5"
+
+
+def test_md_row_joins_escaped_cells():
+    assert _md_row("`a`", "b | c", "-") == "| `a` | b \\| c | - |"
+
+
+def test_readme_escapes_markdown_cells():
+    measure = Measure(
+        name="Taxed", dax_expression="AddTax([Total], 0.23)", description="Net | gross amount"
+    )
+    fn = UserFunction(name="Calc", expression="x", description="a | b")
+    role = SecurityRole(
+        name="Pipe Role",
+        table_filters=[TableFilter(table="t", dax_filter="[a] = \"x\" || [b] = \"y\"\n&& [c] = \"z\"")],
+    )
+    table = Table(name="_measures", table_type="measures_only", measures=[measure])
+    model = SemanticModel(report_name="T", tables=[table], functions=[fn], security_roles=[role])
+    readme = generate_readme(model, {}, {"report_name": "T", "include_dax": True})
+    assert "Net \\| gross amount" in readme
+    assert "a \\| b" in readme
+    assert '`[a] = "x" \\|\\| [b] = "y" && [c] = "z"`' in readme
+    measures_row = next(line for line in readme.split("\n") if line.startswith("| `Taxed`"))
+    assert measures_row.count("|") - measures_row.count("\\|") == 5
 
 
 def test_readme_unresolved_section(sample_model, sample_resolved, gen_config):
